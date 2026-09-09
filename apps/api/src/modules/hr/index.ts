@@ -23,7 +23,7 @@ router.get('/profile/:userId', requireAuth, async (req: Request, res: Response) 
 router.patch('/profile/:userId', requireAuth, async (req: Request, res: Response) => {
   const requestor = (req as any).user;
   const { userId } = req.params;
-  if (requestor.id !== userId && !['ADMIN', 'SUPER_ADMIN'].includes(requestor.role)) {
+  if (requestor.id !== userId && !['ADMIN', 'RESELLER_SUPER_ADMIN'].includes(requestor.role)) {
     return res.status(403).json({ ok: false, message: 'Forbidden' });
   }
   const { department, phone, avatarUrl, joinDate, bio } = req.body;
@@ -36,7 +36,7 @@ router.patch('/profile/:userId', requireAuth, async (req: Request, res: Response
 });
 
 // GET /hr/employees
-router.get('/employees', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.get('/employees', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const orgId = (req as any).user.orgId;
   const employees = await prisma.user.findMany({
     where: { organizationId: orgId, isActive: true },
@@ -63,7 +63,7 @@ router.post('/leave', requireAuth, async (req: Request, res: Response) => {
 // GET /hr/leave
 router.get('/leave', requireAuth, async (req: Request, res: Response) => {
   const requestor = (req as any).user;
-  const isManager = ['ADMIN', 'SUPER_ADMIN'].includes(requestor.role);
+  const isManager = ['ADMIN', 'RESELLER_SUPER_ADMIN'].includes(requestor.role);
   const leaves = await prisma.leaveRequest.findMany({
     where: isManager ? { user: { organizationId: requestor.orgId } } : { userId: requestor.id },
     include: { user: { select: { id: true, fullName: true, role: true } } },
@@ -73,7 +73,7 @@ router.get('/leave', requireAuth, async (req: Request, res: Response) => {
 });
 
 // PATCH /hr/leave/:id
-router.patch('/leave/:id', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.patch('/leave/:id', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const { status, reviewNote } = req.body;
   const leave = await prisma.leaveRequest.update({
     where: { id: req.params.id },
@@ -106,7 +106,7 @@ router.get('/skills', requireAuth, async (req: Request, res: Response) => {
 });
 
 // POST /hr/skills
-router.post('/skills', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.post('/skills', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const orgId = (req as any).user.orgId;
   const { name, category } = req.body;
   if (!name) return res.status(400).json({ ok: false, message: 'Skill name is required' });
@@ -141,7 +141,7 @@ router.post('/user-skills', requireAuth, async (req: Request, res: Response) => 
   const { userId, skillId, proficiencyLevel } = req.body;
   
   // Only the user or an ADMIN can update skills
-  if (requestor.id !== userId && !['ADMIN', 'SUPER_ADMIN'].includes(requestor.role)) {
+  if (requestor.id !== userId && !['ADMIN', 'RESELLER_SUPER_ADMIN'].includes(requestor.role)) {
     return res.status(403).json({ ok: false, message: 'Forbidden' });
   }
 
@@ -182,7 +182,7 @@ router.get('/onboarding', requireAuth, async (req: Request, res: Response) => {
 });
 
 // POST /hr/onboarding
-router.post('/onboarding', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.post('/onboarding', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const orgId = (req as any).user.orgId;
   const { title, description, roleRequirement } = req.body;
   if (!title) return res.status(400).json({ ok: false, message: 'Title required' });

@@ -4,6 +4,7 @@ import { prisma } from "../../../db.js";
 import { redis } from "../../../redis.js";
 import { getSession, setSession, clearSession, setState } from "../session.js";
 import { mainMenu, cancelMenu, confirmMenu } from "../keyboards/menus.js";
+import { esc, humanRole } from "../tg-utils.js";
 
 const require = createRequire(import.meta.url);
 const speakeasy = require("speakeasy");
@@ -16,31 +17,27 @@ export async function handleStart(ctx: Context) {
   const chatId = ctx.chat!.id;
   const session = await getSession(chatId);
 
-  if (session && session.userId) {
+  if (session?.userId) {
     await ctx.reply(
-      `👋 Welcome back, *${session.fullName}*!\n\nChoose an action:`,
-      { parse_mode: "Markdown", ...mainMenu() }
+      `👋 Welcome back, <b>${esc(session.fullName)}</b>!\n\nChoose an action:`,
+      { parse_mode: "HTML", ...mainMenu() }
     );
     return;
   }
 
-  // Wipe any stale pending state
   await clearSession(chatId);
 
   await ctx.reply(
-    "👋 Welcome to *AtrailBot*!\n\nThis bot lets you manage tasks, get AI assistance, and receive real-time notifications from your Atrail workspace.\n\nTo continue, please enter your company email address:",
-    { parse_mode: "Markdown", ...cancelMenu() }
+    `👋 Welcome to <b>Atrail</b>!\n\n` +
+    `I'm your professional workspace assistant — I'll keep you updated on renewals, tasks, and important alerts.\n\n` +
+    `<b>To link your account:</b>\n` +
+    `1. Copy your Chat ID below\n` +
+    `2. Go to <b>Atrail → Integrations → Telegram Bot</b>\n` +
+    `3. Paste the ID and click Link\n\n` +
+    `Your Chat ID: <code>${chatId}</code>\n\n` +
+    `<i>Or use /getid anytime to see your Chat ID again.</i>`,
+    { parse_mode: "HTML" }
   );
-
-  // Bootstrap a partial session to hold state
-  await setSession(chatId, {
-    userId: "",
-    orgId: "",
-    role: "",
-    fullName: "",
-    email: "",
-    state: "await_email",
-  });
 }
 
 export async function handleLogout(ctx: Context) {
@@ -77,24 +74,22 @@ export async function handleAuthFlow(ctx: Context, text: string) {
     });
 
     if (!user || user.status !== "ACTIVE") {
-      await ctx.reply(
-        "❌ No active Atrail account found for that email.\n\nPlease contact your administrator."
-      );
+      await ctx.reply("❌ No active Atrail account found for that email.\n\nPlease contact your administrator.");
       return;
     }
 
     if (!user.totpSecret?.verified) {
       await ctx.reply(
-        "⚠️ *MFA is not enabled* on your account.\n\nPlease log in to the Atrail web app, enable MFA under Settings → Security, then come back here.",
-        { parse_mode: "Markdown" }
+        "⚠️ <b>MFA is not enabled</b> on your account.\n\nPlease log in to the Atrail web app, enable MFA under Settings → Security, then come back here.",
+        { parse_mode: "HTML" }
       );
       return;
     }
 
     await setState(chatId, "await_totp", { userId: user.id, orgId: user.organizationId, emailFound: email });
     await ctx.reply(
-      `✅ Account found: *${user.fullName}*\n\nPlease enter your 6-digit TOTP code from your authenticator app:`,
-      { parse_mode: "Markdown", ...cancelMenu() }
+      `✅ Account found: <b>${esc(user.fullName)}</b>\n\nPlease enter your 6-digit TOTP code from your authenticator app:`,
+      { parse_mode: "HTML", ...cancelMenu() }
     );
     return;
   }
@@ -108,7 +103,6 @@ export async function handleAuthFlow(ctx: Context, text: string) {
       return;
     }
 
-    // Brute-force guard (5 attempts per 5 min)
     const failKey = `tg_auth_fail:${chatId}`;
     const fails = await redis.incr(failKey);
     if (fails === 1) await redis.expire(failKey, 300);
@@ -131,7 +125,6 @@ export async function handleAuthFlow(ctx: Context, text: string) {
       return;
     }
 
-    // Clear fail counter on success
     await redis.del(failKey);
 
     const user = await prisma.user.findUnique({
@@ -140,9 +133,8 @@ export async function handleAuthFlow(ctx: Context, text: string) {
     });
     if (!user) return;
 
-    // Transition to await_confirm state and ask user to confirm details
     await setSession(chatId, {
-      userId: "", // Keep it empty for security until confirmed
+      userId: "",
       orgId: user.organizationId,
       role: user.role,
       fullName: user.fullName,
@@ -151,7 +143,14 @@ export async function handleAuthFlow(ctx: Context, text: string) {
       pendingData: { userId: user.id },
     });
 
-    const msg = `🔐 *Confirm Your Details*\n\nPlease verify that the details below are correct before connecting this Telegram account:\n\n👤 *Name:* ${user.fullName}\n🏢 *Company:* ${user.companyName || user.organization.name}\n🔑 *Role:* ${user.role}\n👥 *Team:* ${user.profile?.department || "N/A"}`;
-    await ctx.reply(msg, { parse_mode: "Markdown", ...confirmMenu("LINK") });
+    await ctx.reply(
+      `🔐 <b>Confirm Your Details</b>\n\n` +
+      `Please verify that the details below are correct before connecting this Telegram account:\n\n` +
+      `👤 <b>Name:</b> ${esc(user.fullName)}\n` +
+      `🏢 <b>Company:</b> ${esc(user.companyName || user.organization.name)}\n` +
+      `🔑 <b>Role:</b> ${humanRole(user.role)}\n` +
+      `👥 <b>Team:</b> ${esc(user.profile?.department || "N/A")}`,
+      { parse_mode: "HTML", ...confirmMenu("LINK") }
+    );
   }
 }

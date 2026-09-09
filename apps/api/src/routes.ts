@@ -30,6 +30,7 @@ import scoringRouter from "./modules/scoring/routes.js";
 import commissionsRouter from "./modules/commissions/routes.js";
 import quotesRouter from "./modules/quotes/routes.js";
 import { developerRouter } from "./modules/developer/developer.routes.js";
+import { resellerRouter } from "./modules/reseller/reseller.routes.js";
 
 export const apiRouter = Router();
 
@@ -63,10 +64,22 @@ apiRouter.use("/scoring", scoringRouter);
 apiRouter.use("/commissions", commissionsRouter);
 apiRouter.use("/quotes", quotesRouter);
 apiRouter.use("/developer", developerRouter);
+apiRouter.use("/resellers", resellerRouter);
 
-// Billing status — any authenticated user can fetch their own org status (for the banner)
+// Feature flags — any authenticated user can fetch their org's enabled modules
 import { requireAuth } from "./middlewares/auth.js";
 import { prisma } from "./db.js";
+import { featureFlagsService } from "./modules/feature-flags/feature-flags.service.js";
+
+apiRouter.get("/feature-flags", requireAuth, async (req, res, next) => {
+  try {
+    const u = (req as any).user;
+    const flags = await featureFlagsService.getFlags(u.orgId);
+    res.json({ ok: true, flags });
+  } catch (e) { next(e); }
+});
+
+// Billing status — any authenticated user can fetch their own org status (for the banner)
 apiRouter.get("/billing/my-status", requireAuth, async (req, res) => {
   try {
     const u = (req as any).user;

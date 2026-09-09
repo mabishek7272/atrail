@@ -2,8 +2,13 @@ import { prisma } from "../../db.js";
 import { ApiError } from "../../utils/errors.js";
 import { Role } from "../../prisma-client.js";
 
+const ROLE_W: Record<string, number> = {
+  GOD: 200, DEVELOPER: 190, RESELLER_SUPER_ADMIN: 150,
+  ADMIN: 100, ELITE: 80, USER: 70, INTERN: 30,
+};
+
 function isAdminPlus(role: string) {
-  return role === "ADMIN" || role === "SUPER_ADMIN";
+  return (ROLE_W[role] ?? 0) >= ROLE_W["ADMIN"];
 }
 
 async function ensureProjectChatSynced(orgId: string, projectId: string) {
@@ -62,7 +67,9 @@ async function ensureProjectChatSynced(orgId: string, projectId: string) {
 export const projectsService = {
   async list(userId: string, orgId: string, role: string) {
     if (isAdminPlus(role)) {
-      const whereClause = role === "SUPER_ADMIN" ? {} : { organizationId: orgId };
+      // GOD/DEVELOPER/RESELLER can see all orgs; ADMIN/ELITE scoped to their org
+      const canSeeAll = ["GOD", "DEVELOPER", "RESELLER_SUPER_ADMIN"].includes(role);
+      const whereClause = canSeeAll ? {} : { organizationId: orgId };
       return prisma.project.findMany({
         where: whereClause,
         orderBy: { updatedAt: "desc" },
@@ -117,7 +124,7 @@ export const projectsService = {
   },
 
   async getOne(userId: string, orgId: string, role: string, projectId: string) {
-    const whereClause = role === "SUPER_ADMIN" ? { id: projectId } : { id: projectId, organizationId: orgId };
+    const whereClause = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"] ? { id: projectId } : { id: projectId, organizationId: orgId };
     const project = await prisma.project.findFirst({
       where: whereClause,
       select: {
@@ -159,7 +166,8 @@ export const projectsService = {
     body: { name: string; description?: string; headId?: string, organizationId?: string }
   ) {
     let headId: string | null = null;
-    const targetOrgId = role === "SUPER_ADMIN" && body.organizationId ? body.organizationId : orgId;
+    const canChooseOrg = ["GOD", "DEVELOPER", "RESELLER_SUPER_ADMIN"].includes(role);
+    const targetOrgId = canChooseOrg && body.organizationId ? body.organizationId : orgId;
 
     if (body.headId) {
       const head = await prisma.user.findFirst({
@@ -167,8 +175,14 @@ export const projectsService = {
         select: { id: true, role: true },
       });
       if (!head) throw new ApiError(404, "Head user not found in the selected organization");
-      if (head.role !== Role.ELITE)
-        throw new ApiError(400, "Project head must be ELITE");
+
+      // Auto-promote USER/INTERN to ELITE when assigning as project head
+      if (head.role !== Role.ELITE) {
+        await prisma.user.update({
+          where: { id: body.headId },
+          data: { role: Role.ELITE },
+        });
+      }
       headId = head.id;
     }
 
@@ -208,14 +222,14 @@ export const projectsService = {
     body: { name?: string; description?: string, organizationId?: string }
   ) {
     // (updatedById kept for future audit expansion)
-    const whereClause = role === "SUPER_ADMIN" ? { id: projectId } : { id: projectId, organizationId: orgId };
+    const whereClause = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"] ? { id: projectId } : { id: projectId, organizationId: orgId };
     const exists = await prisma.project.findFirst({
       where: whereClause,
       select: { id: true, organizationId: true },
     });
     if (!exists) throw new ApiError(404, "Project not found");
 
-    const newOrgId = role === "SUPER_ADMIN" && body.organizationId ? body.organizationId : exists.organizationId;
+    const newOrgId = role === "RESELLER_SUPER_ADMIN" && body.organizationId ? body.organizationId : exists.organizationId;
 
     const updated = await prisma.project.update({
       where: { id: projectId },
@@ -224,7 +238,7 @@ export const projectsService = {
         ...(body.description !== undefined
           ? { description: body.description }
           : {}),
-        ...(role === "SUPER_ADMIN" && body.organizationId ? { organizationId: body.organizationId } : {}),
+        ...(role === "RESELLER_SUPER_ADMIN" && body.organizationId ? { organizationId: body.organizationId } : {}),
       },
       select: {
         id: true,
@@ -251,7 +265,7 @@ export const projectsService = {
     projectId: string,
     headId: string | null
   ) {
-    const whereClause = role === "SUPER_ADMIN" ? { id: projectId } : { id: projectId, organizationId: orgId };
+    const whereClause = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"] ? { id: projectId } : { id: projectId, organizationId: orgId };
     const project = await prisma.project.findFirst({
       where: whereClause,
       select: { id: true, headId: true, organizationId: true },
@@ -359,7 +373,7 @@ export const projectsService = {
     projectId: string,
     adminId: string | null
   ) {
-    if (actorRole !== "SUPER_ADMIN") throw new ApiError(403, "Only Super Admin can assign Admins to projects");
+    if (actorRole !== "RESELLER_SUPER_ADMIN") throw new ApiError(403, "Only Super Admin can assign Admins to projects");
     
     const project = await prisma.project.findFirst({
       where: { id: projectId },
@@ -387,11 +401,12 @@ export const projectsService = {
     projectId: string,
     eliteId: string | null
   ) {
-    if (actorRole !== "SUPER_ADMIN" && actorRole !== "ADMIN") {
-      throw new ApiError(403, "Only Super Admin or Admin can assign Elites to projects");
+    if (!isAdminPlus(actorRole)) {
+      throw new ApiError(403, "Only admins can assign Elites to projects");
     }
 
-    const whereClause = actorRole === "SUPER_ADMIN" ? { id: projectId } : { id: projectId, organizationId: orgId, assignedAdminId: actorId };
+    const isGodLevel = (ROLE_W[actorRole] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+    const whereClause = isGodLevel ? { id: projectId } : { id: projectId, organizationId: orgId, assignedAdminId: actorId };
     const project = await prisma.project.findFirst({
       where: whereClause,
     });
@@ -449,7 +464,8 @@ export const projectsService = {
     projectId: string,
     userIds: string[]
   ) {
-    const whereClause = actorRole === "SUPER_ADMIN" ? { id: projectId } : { id: projectId, organizationId: orgId };
+    const isGodLevel = (ROLE_W[actorRole] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+    const whereClause = isGodLevel ? { id: projectId } : { id: projectId, organizationId: orgId };
     const project = await prisma.project.findFirst({
       where: whereClause,
       select: { id: true, headId: true, organizationId: true },
@@ -469,10 +485,10 @@ export const projectsService = {
     if (targets.length !== userIds.length)
       throw new ApiError(400, "Some users not found");
 
-    // Only ELITE and USER can be project members
-    const invalidRoles = targets.filter((t) => t.role !== Role.ELITE && t.role !== Role.USER);
+    // ELITE, USER, and INTERN can be project members
+    const invalidRoles = targets.filter((t) => t.role !== Role.ELITE && t.role !== Role.USER && t.role !== Role.INTERN);
     if (invalidRoles.length > 0) {
-      throw new ApiError(400, "Only ELITE and USER roles can be project members");
+      throw new ApiError(400, "Only ELITE, USER, and INTERN roles can be project members");
     }
 
     // If Elite head is adding, only allow adding USERs (keeps hierarchy clean)
@@ -510,7 +526,7 @@ export const projectsService = {
     projectId: string,
     removeUserId: string
   ) {
-    const whereClause = actorRole === "SUPER_ADMIN" ? { id: projectId } : { id: projectId, organizationId: orgId };
+    const whereClause = (ROLE_W[actorRole] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"] ? { id: projectId } : { id: projectId, organizationId: orgId };
     const project = await prisma.project.findFirst({
       where: whereClause,
       select: { id: true, headId: true, organizationId: true },
@@ -549,12 +565,12 @@ export const projectsService = {
     actorRole: string,
     projectId: string
   ) {
-    // Only ADMIN and SUPER_ADMIN can delete projects
+    // Only ADMIN and RESELLER_SUPER_ADMIN can delete projects
     if (!isAdminPlus(actorRole)) {
       throw new ApiError(403, "Only admins can delete projects");
     }
 
-    const whereClause = actorRole === "SUPER_ADMIN" ? { id: projectId } : { id: projectId, organizationId: orgId };
+    const whereClause = (ROLE_W[actorRole] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"] ? { id: projectId } : { id: projectId, organizationId: orgId };
     const project = await prisma.project.findFirst({
       where: whereClause,
       select: { id: true },

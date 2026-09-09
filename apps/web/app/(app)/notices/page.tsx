@@ -24,7 +24,7 @@ type Notice = {
 
 export default function NoticesPage() {
   const { user } = useAuthStore();
-  const canPublish = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const canPublish = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "");
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);

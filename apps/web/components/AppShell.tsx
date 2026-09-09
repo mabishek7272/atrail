@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -24,11 +25,17 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
+const ROLE_W: Record<string, number> = {
+  GOD: 200, DEVELOPER: 190, RESELLER_SUPER_ADMIN: 150,
+  ADMIN: 100, ELITE: 80, USER: 70, INTERN: 30,
+};
+
 function resolveDashboardHref(role?: string) {
-  if (role === "SUPER_ADMIN") return "/dashboard/super";
-  if (role === "ADMIN") return "/dashboard/admin";
-  if (role === "ELITE") return "/dashboard/elite";
-  if (role === "TENANT") return "/dashboard/tenant";
+  const w = ROLE_W[role ?? ""] ?? 0;
+  if (w >= ROLE_W["GOD"])                  return "/dashboard/god";
+  if (w >= ROLE_W["RESELLER_SUPER_ADMIN"]) return "/dashboard/reseller";
+  if (role === "ADMIN")                    return "/dashboard/admin";
+  if (role === "ELITE")                    return "/dashboard/elite";
   return "/dashboard/user";
 }
 
@@ -128,36 +135,116 @@ function SideNav({
 }) {
   const dashboardHref = resolveDashboardHref(role);
 
-  const NAV: NavItem[] = [
-    // ── GOD / DEVELOPER only ─────────────────────────────────────────────────
-    { href: "/developer", label: "Developer Panel", icon: <Shield size={16} />, roles: ["GOD","DEVELOPER"] },
+  const user = useAuthStore((s) => s.user);
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const [allOrgs, setAllOrgs] = useState<{ id: string; name: string }[]>([]);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    if (user && (ROLE_W[user.role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"]) {
+      authedFetch<{ ok: true; organizations: { id: string; name: string }[] }>("/organizations")
+        .then((res) => {
+          if (res.organizations) setAllOrgs(res.organizations);
+        })
+        .catch(console.error);
+    }
+  }, [user?.role]);
+
+  const handleSwitchOrg = async (orgId: string) => {
+    if (!orgId) return;
+
+    // Special handling for "Overall" view (GOD users seeing all orgs)
+    if (orgId === "OVERALL") {
+      // GOD users can already see all projects, just reload to refresh
+      window.location.reload();
+      return;
+    }
+
+    if (orgId === user?.organizationId) return;
+    setSwitching(true);
+    try {
+      const res = await authedFetch<{ ok: true; accessToken: string; user: any }>("/auth/switch-org", {
+        method: "POST",
+        body: JSON.stringify({ orgId }),
+      });
+      if (res.ok && res.accessToken) {
+        setAuth(res.accessToken, res.user);
+        // Wait for localStorage to persist before reloading
+        setTimeout(() => window.location.reload(), 200);
+      }
+    } catch (e: any) {
+      alert(e.message || "Failed to switch organization context");
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const currentOrgId = user?.organizationId || "";
+  const isSuper = user && (ROLE_W[user.role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+  
+  let switchableOrgs: { id: string; name: string }[] = [];
+  if (isSuper) {
+    switchableOrgs = allOrgs;
+  } else {
+    const list: { id: string; name: string }[] = [];
+    if (user?.organization) {
+      list.push(user.organization);
+    } else if (user?.organizationId) {
+      list.push({ id: user.organizationId, name: "Primary Organization" });
+    }
+    if (user?.accessibleOrgs) {
+      for (const ao of user.accessibleOrgs) {
+        if (!list.some(item => item.id === ao.organizationId)) {
+          list.push({ id: ao.organizationId, name: ao.organization.name });
+        }
+      }
+    }
+    switchableOrgs = list;
+  }
+
+  // Weight-based role check — GOD sees everything, each item has a minimum weight
+  const rw = ROLE_W[role ?? ""] ?? 0;
+  const god      = rw >= ROLE_W["GOD"];
+  const reseller = rw >= ROLE_W["RESELLER_SUPER_ADMIN"];
+  const admin    = rw >= ROLE_W["ADMIN"];
+  const elite    = rw >= ROLE_W["ELITE"];
+  const user_    = rw >= ROLE_W["USER"];
+
+  const NAV = [
+    // ── Platform ─────────────────────────────────────────────────────────────
+    { href: "/developer",           label: "Developer Panel",   icon: <Shield size={16} />,        show: god },
+    { href: "/reseller",            label: "Resellers",         icon: <Building2 size={16} />,     show: reseller },
+    { href: "/organizations",       label: "Tenants",           icon: <Building2 size={16} />,     show: reseller },
+    // ── Core ─────────────────────────────────────────────────────────────────
+    { href: "/dashboard",           label: "Dashboard",         icon: <LayoutDashboard size={16} />, show: true },
     // ── Renewal OS ───────────────────────────────────────────────────────────
-    { href: "/dashboard",           label: "Renewal Dashboard", icon: <TrendingUp size={16} /> },
-    { href: "/renewals",            label: "Renewals",          icon: <RefreshCw size={16} /> },
-    { href: "/dashboard/customers", label: "Customers",         icon: <Users size={16} />,    roles: ["SUPER_ADMIN","ADMIN","GOD","DEVELOPER"] },
-    { href: "/commissions",         label: "Commissions",       icon: <Wallet size={16} /> },
-    { href: "/attendance",  label: "Attendance",  icon: <Clock size={16} />,       roles: ["SUPER_ADMIN","ADMIN","ELITE","USER"] },
-    { href: "/chat",        label: "Chat",         icon: <MessageSquare size={16} /> },
-    { href: "/projects",    label: "Projects",     icon: <Briefcase size={16} /> },
-    { href: "/tasks",       label: "Tasks",        icon: <CheckSquare size={16} />, roles: ["SUPER_ADMIN","ADMIN","ELITE","USER"] },
-    { href: "/kanban",      label: "Kanban",       icon: <Kanban size={16} />,      roles: ["SUPER_ADMIN","ADMIN","ELITE","USER"] },
-    { href: "/roadmap",     label: "Roadmap",      icon: <Map size={16} /> },
-    { href: "/calendar",    label: "Calendar",     icon: <CalendarDays size={16} /> },
-    { href: "/notices",     label: "Notices",      icon: <Bell size={16} /> },
-    { href: "/emergency",   label: "Emergency",    icon: <AlertTriangle size={16} /> },
-    { href: "/directory",   label: "Directory",    icon: <Users size={16} />,       roles: ["ADMIN","SUPER_ADMIN"] },
-    { href: "/dashboard/super/organizations", label: "Tenants", icon: <Building2 size={16} />, roles: ["SUPER_ADMIN"] },
-    { href: "/analytics",   label: "Analytics",    icon: <BarChart3 size={16} />,   roles: ["ADMIN","SUPER_ADMIN"] },
-    { href: "/hr",          label: "HR & Leaves",  icon: <Heart size={16} />,       roles: ["SUPER_ADMIN","ADMIN","ELITE","USER"] },
-    { href: "/assets",      label: "Assets",       icon: <Package size={16} />,     roles: ["SUPER_ADMIN","ADMIN"] },
-    { href: "/licenses",    label: "Licenses",     icon: <Shield size={16} />,      roles: ["SUPER_ADMIN","ADMIN"] },
-    { href: "/documents",     label: "Documents",    icon: <FileText size={16} /> },
-    { href: "/integrations",  label: "Integrations", icon: <Zap size={16} /> },
-    { href: "/finance",       label: "Finance",      icon: <Receipt size={16} />,     roles: ["SUPER_ADMIN","ADMIN","TENANT"] },
-    { href: "/settings",      label: "Settings",     icon: <Settings size={16} /> },
+    { href: "/renewals",            label: "Renewals",          icon: <RefreshCw size={16} />,     show: true },
+    { href: "/dashboard/customers", label: "Customers",         icon: <Users size={16} />,         show: admin },
+    { href: "/commissions",         label: "Commissions",       icon: <Wallet size={16} />,        show: true },
+    { href: "/finance",             label: "Finance",           icon: <Receipt size={16} />,       show: admin },
+    // ── Workforce ────────────────────────────────────────────────────────────
+    { href: "/projects",            label: "Projects",          icon: <Briefcase size={16} />,     show: true },
+    { href: "/tasks",               label: "Tasks",             icon: <CheckSquare size={16} />,   show: user_ },
+    { href: "/kanban",              label: "Kanban",            icon: <Kanban size={16} />,        show: elite },
+    { href: "/roadmap",             label: "Roadmap",           icon: <Map size={16} />,           show: true },
+    { href: "/calendar",            label: "Calendar",          icon: <CalendarDays size={16} />,  show: true },
+    { href: "/attendance",          label: "Attendance",        icon: <Clock size={16} />,         show: user_ },
+    { href: "/chat",                label: "Chat",              icon: <MessageSquare size={16} />, show: true },
+    { href: "/notices",             label: "Notices",           icon: <Bell size={16} />,          show: true },
+    { href: "/emergency",           label: "Emergency",         icon: <AlertTriangle size={16} />, show: true },
+    // ── HR & Assets ──────────────────────────────────────────────────────────
+    { href: "/hr",                  label: "HR & Leaves",       icon: <Heart size={16} />,         show: user_ },
+    { href: "/assets",              label: "Assets",            icon: <Package size={16} />,       show: admin },
+    { href: "/licenses",            label: "Licenses",          icon: <Shield size={16} />,        show: admin },
+    { href: "/documents",           label: "Documents",         icon: <FileText size={16} />,      show: true },
+    // ── Reports & Directory ──────────────────────────────────────────────────
+    { href: "/analytics",           label: "Analytics",         icon: <BarChart3 size={16} />,     show: elite },
+    { href: "/directory",           label: "Directory",         icon: <Users size={16} />,         show: admin },
+    { href: "/integrations",        label: "Integrations",      icon: <Zap size={16} />,           show: true },
+    { href: "/settings",            label: "Settings",          icon: <Settings size={16} />,      show: true },
   ];
 
-  const items = NAV.filter((n) => !n.roles || (!!role && n.roles.includes(role)));
+  const items = NAV.filter((n) => n.show);
   const userInitials = initials(fullName);
 
   return (
@@ -224,8 +311,38 @@ function SideNav({
           <div className="min-w-0 flex-1">
             <div className="text-xs font-semibold text-[#e2e8f0] truncate">{fullName}</div>
             <div className="text-[10px] text-[#64748b] uppercase tracking-wider mt-px">
-              {role?.replace("_", " ") ?? "Member"}
+              {role === "RESELLER_SUPER_ADMIN" ? "Reseller Admin"
+               : role === "GOD" ? "Platform Owner"
+               : role === "DEVELOPER" ? "Developer"
+               : role?.replace(/_/g, " ") ?? "Member"}
             </div>
+            {(isSuper || switchableOrgs.length > 1) && (
+              <div className="mt-2">
+                <select
+                  disabled={switching}
+                  value={currentOrgId}
+                  onChange={(e) => handleSwitchOrg(e.target.value)}
+                  className="w-full bg-[#020b18]/60 text-[10px] text-primary border border-primary/20 rounded px-1.5 py-0.5 outline-none focus:border-primary cursor-pointer font-medium"
+                >
+                  {god && (
+                    <option value="OVERALL" className="bg-[#020b18] text-[#e2e8f0]">
+                      📊 Overall (All Organizations)
+                    </option>
+                  )}
+                  {switchableOrgs.length === 0 ? (
+                    <option value={currentOrgId} className="bg-[#020b18] text-[#e2e8f0]">
+                      {user?.organization?.name || "Loading..."}
+                    </option>
+                  ) : (
+                    switchableOrgs.map((org) => (
+                      <option key={org.id} value={org.id} className="bg-[#020b18] text-[#e2e8f0]">
+                        {org.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            )}
           </div>
           <div
             className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"
@@ -425,11 +542,26 @@ export default function AppShell({
   if (parent) {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     useEffect(() => {
-      parent.setHeader(title ?? "", subtitle, right);
-    // Update whenever page-level props change (title, subtitle, right)
+      parent.setHeader(title ?? "", subtitle, undefined);
+    // Update whenever page-level props change (title, subtitle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [title, subtitle]);
-    return <>{children}</>;
+
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [mounted, setMounted] = useState(false);
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useEffect(() => {
+      setMounted(true);
+    }, []);
+
+    const target = mounted ? document.getElementById("appshell-header-right") : null;
+
+    return (
+      <>
+        {target && right ? createPortal(<>{right}</>, target) : null}
+        {children}
+      </>
+    );
   }
 
   /* ── Standalone / layout-root mode: render the full shell. ── */
@@ -542,7 +674,7 @@ function AppShellRoot({
                 {collapsed ? <ChevronRight size={14} /> : <X size={14} />}
               </button>
 
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 <SideNav
                   pathname={pathname}
                   role={role}
@@ -624,6 +756,7 @@ function AppShellRoot({
 
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {headerRight}
+                  <div id="appshell-header-right" className="flex items-center gap-2" />
                   {/* Global Search trigger */}
                   <button
                     onClick={() => setPaletteOpen(true)}

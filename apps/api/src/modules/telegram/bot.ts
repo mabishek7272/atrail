@@ -22,6 +22,16 @@ setBotInstance(bot);
 bot.command("start", handleStart);
 bot.command("logout", handleLogout);
 
+// /getid — returns the user's Telegram Chat ID so they can paste it in the dashboard
+bot.command("getid", async (ctx) => {
+  const chatId = ctx.chat.id;
+  const username = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name ?? "there";
+  await ctx.reply(
+    `🆔 <b>Your Telegram Chat ID</b>\n\n<code>${chatId}</code>\n\nCopy this ID and paste it in <b>Atrail → Integrations → Telegram Bot</b> to link your account.\n\nOnce linked, you'll receive renewal alerts and notifications here directly.`,
+    { parse_mode: "HTML" }
+  );
+});
+
 bot.command("menu", async (ctx) => {
   const session = await getSession(ctx.chat.id);
   if (!session?.userId) {
@@ -38,22 +48,23 @@ bot.command("password", requireLinked, async (ctx) => {
   const chatId = ctx.chat.id;
   await setState(chatId, "password_change_await_totp");
   await ctx.reply(
-    "🔐 *Password Change Request*\n\nPlease enter your 6-digit TOTP code from your authenticator app to verify your identity:",
-    { parse_mode: "Markdown", ...cancelMenu() }
+    "🔐 <b>Password Change Request</b>\n\nPlease enter your 6-digit TOTP code from your authenticator app to verify your identity:",
+    { parse_mode: "HTML", ...cancelMenu() }
   );
 });
 
 bot.command("help", async (ctx) => {
   await ctx.reply(
-    "*AtrailBot Commands*\n\n" +
-    "/start — Login / link your Atrail account\n" +
-    "/menu — Show main menu\n" +
+    "<b>Atrail Bot Commands</b>\n\n" +
+    "/start — Welcome message & account linking\n" +
+    "/getid — Get your Telegram Chat ID (paste in Atrail to link)\n" +
+    "/menu — Open main menu\n" +
     "/tasks — View your pending tasks\n" +
-    "/ai — Open AI assistant\n" +
+    "/ai — Ask the AI assistant\n" +
     "/notif — View unread notifications\n" +
-    "/logout — Log out\n\n" +
-    "You can also use the inline buttons to navigate.",
-    { parse_mode: "Markdown" }
+    "/logout — Unlink this Telegram account\n\n" +
+    "Need help? Visit atrail.in or contact your administrator.",
+    { parse_mode: "HTML" }
   );
 });
 
@@ -143,8 +154,8 @@ bot.action("CONFIRM_LINK", async (ctx) => {
     });
 
     await ctx.reply(
-      `🎉 *Telegram linked successfully!*\n\nWelcome, *${user?.fullName}*!\n\nYou'll now receive renewal alerts, task notifications, and can use the bot for quick actions.\n\nUse /menu to get started.`,
-      { parse_mode: "Markdown", ...mainMenu() }
+      `🎉 <b>Telegram linked successfully!</b>\n\nWelcome, <b>${user?.fullName}</b>!\n\nYou'll now receive renewal alerts, task notifications, and can use the bot for quick actions.\n\nUse /menu to get started.`,
+      { parse_mode: "HTML", ...mainMenu() }
     );
   } catch (err: any) {
     console.error("[AtrailBot] CONFIRM_LINK error:", err?.message);
@@ -181,8 +192,8 @@ bot.action(/^TASK_SUBMIT_(.{8})$/, requireLinked, async (ctx) => {
 bot.action("MEETINGS_LIST", requireLinked, async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply(
-    "📅 *Meetings*\n\nMeeting management coming soon!\n\nYour upcoming calendar events will appear here.",
-    { parse_mode: "Markdown", ...mainMenu() }
+    "📅 <b>Meetings</b>\n\nMeeting management coming soon!\n\nYour upcoming calendar events will appear here.",
+    { parse_mode: "HTML", ...mainMenu() }
   );
 });
 
@@ -214,13 +225,13 @@ bot.on("text", async (ctx) => {
   if (text.trim().toLowerCase() === "password change") {
     await setState(chatId, "password_change_await_totp");
     await ctx.reply(
-      "🔐 *Password Change Request*\n\nPlease enter your 6-digit TOTP code from your authenticator app to verify your identity:",
-      { parse_mode: "Markdown", ...cancelMenu() }
+      "🔐 <b>Password Change Request</b>\n\nPlease enter your 6-digit TOTP code from your authenticator app to verify your identity:",
+      { parse_mode: "HTML", ...cancelMenu() }
     );
     return;
   }
 
-  // AI conversation
+  // AI conversation (explicit state)
   if (state === "await_ai_msg") {
     await handleAiMessage(ctx as any, text);
     return;
@@ -232,7 +243,12 @@ bot.on("text", async (ctx) => {
     return;
   }
 
-  // Default fallback — show menu
+  // Default: route ALL text messages through AI — no need to type /ai first
+  await setState(chatId, "await_ai_msg");
+  await handleAiMessage(ctx as any, text);
+  return;
+
+  // (unreachable — kept for reference)
   await ctx.reply(
     "Use the menu below to navigate, or send /help for all commands.",
     mainMenu()

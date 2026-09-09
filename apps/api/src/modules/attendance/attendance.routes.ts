@@ -14,5 +14,5 @@ attendanceRouter.post("/punch-out", attendanceController.punchOut);
 attendanceRouter.get("/me/today", attendanceController.today);
 attendanceRouter.get("/me/history", attendanceController.myHistory);
 
-// Admin dashboard (ADMIN and SUPER_ADMIN only)
+// Admin dashboard (ADMIN and RESELLER_SUPER_ADMIN only)
 attendanceRouter.get("/dashboard", attendanceController.adminDashboard);

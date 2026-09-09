@@ -53,7 +53,7 @@ export default function ApprovalsPage() {
   };
 
   return (
-    <AppShell title="User Approvals" subtitle="Review and approve pending KYC registrations.">
+    <AppShell title="User Approvals" subtitle="Review and approve pending registrations.">
       <div className="space-y-6">
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

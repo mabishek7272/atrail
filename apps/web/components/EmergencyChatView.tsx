@@ -10,6 +10,14 @@ import { toast } from "./ui/toast";
 import { confirm } from "./ui/confirm";
 import { AlertTriangle } from "lucide-react";
 
+function roleDashboard(role?: string): string {
+  if (role === "GOD" || role === "DEVELOPER")        return "/dashboard/god";
+  if (role === "RESELLER_SUPER_ADMIN")               return "/dashboard/reseller";
+  if (role === "ADMIN")                              return "/dashboard/admin";
+  if (role === "ELITE")                              return "/dashboard/elite";
+  return "/dashboard/user";
+}
+
 type EmergencyEvent = {
   id: string;
   status: "ACTIVE" | "RESOLVED" | "CANCELLED";
@@ -25,7 +33,7 @@ export default function EmergencyChatView({
 }) {
   const router = useRouter();
   const { user } = useAuthStore();
-  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const isSuperAdmin = user?.role === "RESELLER_SUPER_ADMIN";
 
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState("");
@@ -149,24 +157,7 @@ export default function EmergencyChatView({
       });
       toast.success("Emergency resolved");
       
-      // Navigate to role-specific dashboard after resolving
-      if (!user) {
-        router.push("/dashboard");
-        return;
-      }
-      
-      let dashboardPath = "/dashboard";
-      if (user.role === "SUPER_ADMIN") {
-        dashboardPath = "/dashboard/super";
-      } else if (user.role === "ADMIN") {
-        dashboardPath = "/dashboard/admin";
-      } else if (user.role === "ELITE") {
-        dashboardPath = "/dashboard/elite";
-      } else {
-        dashboardPath = "/dashboard/user";
-      }
-      
-      router.push(dashboardPath);
+      router.push(roleDashboard(user?.role));
     } catch (e: any) {
       toast.error(e?.message || "Failed to resolve emergency");
     } finally {
@@ -175,24 +166,7 @@ export default function EmergencyChatView({
   };
 
   const handleExit = () => {
-    // Navigate to role-specific dashboard
-    if (!user) {
-      router.push("/dashboard");
-      return;
-    }
-    
-    let dashboardPath = "/dashboard";
-    if (user.role === "SUPER_ADMIN") {
-      dashboardPath = "/dashboard/super";
-    } else if (user.role === "ADMIN") {
-      dashboardPath = "/dashboard/admin";
-    } else if (user.role === "ELITE") {
-      dashboardPath = "/dashboard/elite";
-    } else {
-      dashboardPath = "/dashboard/user";
-    }
-    
-    router.push(dashboardPath);
+    router.push(roleDashboard(user?.role));
   };
 
   if (loading) {

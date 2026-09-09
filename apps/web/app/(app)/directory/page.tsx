@@ -17,7 +17,9 @@ type DirectoryUser = {
   phone: string | null;
   companyName: string | null;
   status: string;
+  organizationId: string;
   reportsTo: { id: string; fullName: string; role: string } | null;
+  accessibleOrgs?: { organizationId: string; organization: { id: string; name: string } }[];
 };
 
 type DirectoryData = {
@@ -40,6 +42,20 @@ export default function DirectoryPage() {
   });
   const [selectedRole, setSelectedRole] = useState("");
 
+  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
+  const [editModal, setEditModal] = useState<{ open: boolean; targetUser: DirectoryUser | null }>({
+    open: false,
+    targetUser: null,
+  });
+  const [editForm, setEditForm] = useState({
+    fullName: "",
+    email: "",
+    password: "",
+    role: "",
+    organizationId: "",
+    accessibleOrgIds: [] as string[],
+  });
+
   const me = useAuthStore((s) => s.user);
 
   const load = async () => {
@@ -48,6 +64,13 @@ export default function DirectoryPage() {
         "/users/directory"
       );
       setData(res);
+
+      if (me?.role === "ADMIN" || me?.role === "RESELLER_SUPER_ADMIN" || me?.role === "GOD" || me?.role === "DEVELOPER") {
+        const orgRes = await authedFetch<{ ok: true; organizations: { id: string; name: string }[] }>("/organizations");
+        if (orgRes.organizations) {
+          setOrgs(orgRes.organizations);
+        }
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -57,7 +80,7 @@ export default function DirectoryPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [me]);
 
   const handleAssign = async () => {
     if (!assignModal.targetUser || !selectedManager) return;
@@ -90,20 +113,80 @@ export default function DirectoryPage() {
   };
 
   const [createUserModal, setCreateUserModal] = useState(false);
-  const [newUser, setNewUser] = useState({ fullName: "", email: "", password: "", role: "USER" });
+  const [newUser, setNewUser] = useState({ fullName: "", email: "", password: "", role: "USER", organizationId: "" });
 
   const handleCreateUser = async () => {
     try {
       await authedFetch("/users", {
         method: "POST",
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({
+          ...newUser,
+          organizationId: newUser.organizationId || me?.organizationId,
+        }),
       });
       setCreateUserModal(false);
-      setNewUser({ fullName: "", email: "", password: "", role: "USER" });
+      setNewUser({ fullName: "", email: "", password: "", role: "USER", organizationId: "" });
       load();
     } catch (e: any) {
       alert(e.message || "Failed to create user.");
     }
+  };
+
+  const handleEditOpen = (u: DirectoryUser) => {
+    setEditModal({ open: true, targetUser: u });
+    setEditForm({
+      fullName: u.fullName,
+      email: u.email,
+      password: "",
+      role: u.role,
+      organizationId: u.organizationId || "",
+      accessibleOrgIds: u.accessibleOrgs?.map((ao) => ao.organizationId) || [],
+    });
+  };
+
+  const handleUpdateUser = async () => {
+    if (!editModal.targetUser) return;
+    try {
+      await authedFetch(`/users/${editModal.targetUser.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          fullName: editForm.fullName,
+          email: editForm.email,
+          ...(editForm.password && { password: editForm.password }),
+          role: editForm.role,
+          organizationId: editForm.organizationId,
+          accessibleOrgIds: editForm.accessibleOrgIds,
+        }),
+      });
+      setEditModal({ open: false, targetUser: null });
+      load();
+    } catch (e: any) {
+      alert(e.message || "Failed to update user.");
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!editModal.targetUser) return;
+    if (!confirm("Are you sure you want to deactivate/delete this user?")) return;
+    try {
+      await authedFetch(`/users/${editModal.targetUser.id}`, {
+        method: "DELETE",
+      });
+      setEditModal({ open: false, targetUser: null });
+      load();
+    } catch (e: any) {
+      alert(e.message || "Failed to delete user.");
+    }
+  };
+
+  const toggleAccessibleOrg = (orgId: string) => {
+    setEditForm((prev) => {
+      const current = prev.accessibleOrgIds;
+      const next = current.includes(orgId)
+        ? current.filter((id) => id !== orgId)
+        : [...current, orgId];
+      return { ...prev, accessibleOrgIds: next };
+    });
   };
 
   // Get valid managers based on the target user's role
@@ -111,7 +194,7 @@ export default function DirectoryPage() {
     if (!data) return [];
     if (targetRole === "ELITE") {
       // Elites report to Admins or Super Admins
-      return [...(data.grouped["ADMIN"] || []), ...(data.grouped["SUPER_ADMIN"] || [])];
+      return [...(data.grouped["ADMIN"] || []), ...(data.grouped["RESELLER_SUPER_ADMIN"] || [])];
     }
     if (targetRole === "USER") {
       // Interns/Users report to Elites
@@ -120,12 +203,24 @@ export default function DirectoryPage() {
     return [];
   };
 
+  const canEditUser = (target: DirectoryUser) => {
+    if (!me) return false;
+    const isDeveloperOrGod = me.role === "GOD" || me.role === "DEVELOPER" || me.role === "RESELLER_SUPER_ADMIN";
+    if (isDeveloperOrGod) return true;
+    if (me.role === "ADMIN") {
+      const isLowerRole = target.role === "ELITE" || target.role === "USER" || target.role === "INTERN";
+      const isSameOrg = target.organizationId === me.organizationId;
+      return isLowerRole && isSameOrg;
+    }
+    return false;
+  };
+
   return (
     <AppShell 
       title="Organization Directory" 
       subtitle="Manage teams and reporting structures"
       right={
-        (me?.role === "ADMIN" || me?.role === "SUPER_ADMIN") && (
+        (["GOD", "DEVELOPER", "RESELLER_SUPER_ADMIN", "ADMIN"].includes(me?.role ?? "")) && (
           <Button onClick={() => setCreateUserModal(true)}>+ Create User</Button>
         )
       }
@@ -136,13 +231,13 @@ export default function DirectoryPage() {
         ) : !data ? (
           <div className="text-red-400">Failed to load directory.</div>
         ) : (
-          ["SUPER_ADMIN", "ADMIN", "ELITE", "TENANT", "USER"].map((roleKey) => {
+          ["GOD", "DEVELOPER", "RESELLER_SUPER_ADMIN", "ADMIN", "ELITE", "USER", "INTERN"].map((roleKey) => {
             const roleUsers = data.grouped[roleKey] || [];
             if (roleUsers.length === 0) return null;
 
             return (
               <Card key={roleKey} className="border-primary/20">
-                <CardHeader title={roleKey.replace("_", " ")} subtitle={`${roleUsers.length} members`} />
+                <CardHeader title={roleKey === 'RESELLER_SUPER_ADMIN' ? 'Reseller Admin' : roleKey === 'GOD' ? 'Platform Owner' : roleKey.replace(/_/g, ' ')} subtitle={`${roleUsers.length} members`} />
                 <CardContent>
                   <div className="divide-y divide-zinc-800">
                     {roleUsers.map((u) => (
@@ -158,26 +253,26 @@ export default function DirectoryPage() {
                               Reports To: {u.reportsTo.fullName} ({u.reportsTo.role})
                             </p>
                           )}
+                          {u.accessibleOrgs && u.accessibleOrgs.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5 items-center">
+                              <span className="text-[10px] text-text-muted mr-1 font-semibold uppercase tracking-wider">Accessible Orgs:</span>
+                              {u.accessibleOrgs.map((ao) => (
+                                <Badge key={ao.organizationId} tone="blue" className="text-[10px] py-0 px-1.5">
+                                  {ao.organization.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         
-                        {(u.role === "ELITE" || u.role === "USER" || u.role === "INTERN") && (
+                        {canEditUser(u) && (
                           <div className="flex items-center gap-2">
                             <Button
                               variant="secondary"
-                              onClick={() => {
-                                setRoleModal({ open: true, targetUser: u });
-                                setSelectedRole(u.role);
-                              }}
+                              onClick={() => handleEditOpen(u)}
                               className="text-xs"
                             >
-                              Change Role
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={() => setAssignModal({ open: true, targetUser: u })}
-                              className="text-xs"
-                            >
-                              Assign Manager
+                              Edit User
                             </Button>
                           </div>
                         )}
@@ -190,6 +285,120 @@ export default function DirectoryPage() {
           })
         )}
       </div>
+
+      <Modal
+        open={editModal.open}
+        onClose={() => setEditModal({ open: false, targetUser: null })}
+        title={`Edit User: ${editModal.targetUser?.fullName}`}
+        footer={
+          <div className="flex justify-between items-center w-full">
+            <div>
+              {(me?.role === "RESELLER_SUPER_ADMIN" || me?.role === "GOD" || me?.role === "DEVELOPER") && (
+                <Button variant="danger" onClick={handleDeleteUser}>
+                  Delete User
+                </Button>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setEditModal({ open: false, targetUser: null })}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateUser} disabled={!editForm.fullName || !editForm.email}>
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Full Name</label>
+            <input
+              className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+              value={editForm.fullName}
+              onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+              placeholder="Full Name"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Email</label>
+            <input
+              type="email"
+              className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+              value={editForm.email}
+              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+              placeholder="Email"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase mb-1">
+              New Password (leave blank if not changing)
+            </label>
+            <input
+              type="password"
+              className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+              value={editForm.password}
+              onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+              placeholder="Password"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Role</label>
+            <select
+              className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+              value={editForm.role}
+              onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+            >
+              <option value="INTERN">Intern</option>
+              <option value="USER">User</option>
+              <option value="USER">User</option>
+              <option value="ELITE">Elite / Team Lead</option>
+              {me?.role === "RESELLER_SUPER_ADMIN" && <option value="ADMIN">Admin</option>}
+              {me?.role === "RESELLER_SUPER_ADMIN" && <option value="RESELLER_SUPER_ADMIN">Super Admin</option>}
+            </select>
+          </div>
+
+          {(me?.role === "RESELLER_SUPER_ADMIN" || me?.role === "GOD" || me?.role === "DEVELOPER") && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Primary Organization</label>
+                <select
+                  className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+                  value={editForm.organizationId}
+                  onChange={(e) => setEditForm({ ...editForm, organizationId: e.target.value })}
+                >
+                  <option value="" disabled>-- Select Organization --</option>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Accessible Organizations</label>
+                <div className="space-y-2 max-h-40 overflow-y-auto p-3 glass-panel border border-primary/20 rounded-lg">
+                  {orgs.map((o) => {
+                    const isChecked = editForm.accessibleOrgIds.includes(o.id);
+                    return (
+                      <label key={o.id} className="flex items-center gap-2 text-sm text-[#e2e8f0] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleAccessibleOrg(o.id)}
+                          className="rounded border-primary/20 text-primary focus:ring-primary/40 bg-[#020b18]"
+                        />
+                        {o.name}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         open={assignModal.open}
@@ -265,10 +474,10 @@ export default function DirectoryPage() {
               <option value="" disabled>-- Choose a role --</option>
               <option value="INTERN">Intern</option>
               <option value="USER">User</option>
-              <option value="TENANT">Tenant (Client)</option>
+              <option value="USER">User</option>
               <option value="ELITE">Elite / Team Lead</option>
-              {me?.role === "SUPER_ADMIN" && <option value="ADMIN">Admin</option>}
-              {me?.role === "SUPER_ADMIN" && <option value="SUPER_ADMIN">Super Admin</option>}
+              {me?.role === "RESELLER_SUPER_ADMIN" && <option value="ADMIN">Admin</option>}
+              {me?.role === "RESELLER_SUPER_ADMIN" && <option value="RESELLER_SUPER_ADMIN">Super Admin</option>}
             </select>
           </div>
         </div>
@@ -321,12 +530,28 @@ export default function DirectoryPage() {
             >
               <option value="INTERN">Intern</option>
               <option value="USER">User</option>
-              <option value="TENANT">Tenant</option>
               <option value="ELITE">Elite / Team Lead</option>
-              {me?.role === "SUPER_ADMIN" && <option value="ADMIN">Admin</option>}
-              {me?.role === "SUPER_ADMIN" && <option value="SUPER_ADMIN">Super Admin</option>}
+              {(["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(me?.role ?? "")) && <option value="ADMIN">Admin</option>}
+              {(["GOD","DEVELOPER"].includes(me?.role ?? "")) && <option value="RESELLER_SUPER_ADMIN">Reseller Admin</option>}
             </select>
           </div>
+          {(["GOD","DEVELOPER","RESELLER_SUPER_ADMIN"].includes(me?.role ?? "")) && (
+            <div>
+              <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Organization</label>
+              <select
+                className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+                value={newUser.organizationId}
+                onChange={(e) => setNewUser({ ...newUser, organizationId: e.target.value })}
+              >
+                <option value="">-- Current Organization --</option>
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </Modal>
     </AppShell>

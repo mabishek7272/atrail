@@ -42,8 +42,8 @@ router.get('/vapid-public-key', (_req: Request, res: Response) => {
   return res.json({ ok: true, publicKey: VAPID_PUBLIC });
 });
 
-// GET /notifications/audit-logs (SUPER_ADMIN only)
-router.get('/audit-logs', requireAuth, requireRole('SUPER_ADMIN'), async (req: Request, res: Response) => {
+// GET /notifications/audit-logs (RESELLER_SUPER_ADMIN only)
+router.get('/audit-logs', requireAuth, requireRole('RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const { page = '1', limit = '50', action } = req.query;
   const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 

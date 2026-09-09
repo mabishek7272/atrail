@@ -17,25 +17,25 @@ function projectKey(projectId: string) {
   return `project:${projectId}`;
 }
 
+// Role weight map for chat permission checks (intra-org roles only)
+const CHAT_WEIGHTS: Record<string, number> = {
+  GOD: 200, DEVELOPER: 190, RESELLER_SUPER_ADMIN: 150,
+  ADMIN: 100, ELITE: 80, USER: 70, INTERN: 30,
+};
+
 // Check if user can INITIATE a new chat
 function canInitiateChat(senderRole: Role, receiverRole: Role): boolean {
-  if (senderRole === "SUPER_ADMIN") return true;
+  const sw = CHAT_WEIGHTS[senderRole as string] ?? 0;
+  const rw = CHAT_WEIGHTS[receiverRole as string] ?? 0;
 
-  if (senderRole === "ADMIN") {
-    return receiverRole === "ELITE" || receiverRole === "TENANT" || receiverRole === "SUPER_ADMIN";
-  }
+  // ADMIN and above can initiate with anyone
+  if (sw >= CHAT_WEIGHTS["ADMIN"]) return true;
 
-  if (senderRole === "ELITE") {
-    return receiverRole === "ADMIN" || receiverRole === "USER" || receiverRole === "TENANT" || receiverRole === "SUPER_ADMIN";
-  }
+  // ELITE can initiate with ADMIN and peers (USER)
+  if (senderRole === "ELITE") return rw >= CHAT_WEIGHTS["USER"];
 
-  if (senderRole === "TENANT") {
-    return receiverRole === "ADMIN" || receiverRole === "ELITE";
-  }
-
-  if (senderRole === "USER") {
-    return receiverRole === "ELITE" || receiverRole === "USER" || receiverRole === "SUPER_ADMIN";
-  }
+  // USER can initiate with ELITE or other USERs
+  if (senderRole === "USER") return receiverRole === "ELITE" || receiverRole === "USER";
 
   return false;
 }
@@ -117,12 +117,9 @@ async function checkCanSendMessage(
     return true;
   }
 
-  // Allow replying if higher hierarchy initiated it, EXCEPT for Tenant->User boundary
+  // Allow replying in existing conversations
   if (conversationExists) {
-    if (senderRole === "TENANT" && receiverRole === "USER") return false;
-    if (senderRole === "USER" && receiverRole === "TENANT") return false;
     if (senderRole === "USER" && receiverRole === "ADMIN") return true;
-    if (senderRole === "TENANT" && receiverRole === "SUPER_ADMIN") return true;
   }
 
   return false;
@@ -152,13 +149,13 @@ export const chatService = {
       },
     };
 
-    if (me.role === "SUPER_ADMIN") {
+    if (CHAT_WEIGHTS[me.role] >= CHAT_WEIGHTS["RESELLER_SUPER_ADMIN"]) {
       conversations = await prisma.conversation.findMany({
         where: { organizationId: orgId },
         include: includeConfig,
         orderBy: { updatedAt: "desc" },
       });
-    } else if (me.role === "ADMIN" || me.role === "TENANT") {
+    } else if (me.role === "ADMIN" || me.role === "USER") {
       conversations = await prisma.conversation.findMany({
         where: {
           organizationId: orgId,
@@ -229,7 +226,7 @@ export const chatService = {
           }
         } else if (c.type === "PROJECT" && c.project) {
           if (c.project.name.toLowerCase().includes("announcement")) {
-            if (me.role !== "ADMIN" && me.role !== "SUPER_ADMIN") {
+            if ((CHAT_WEIGHTS[me.role] ?? 0) < CHAT_WEIGHTS["ADMIN"]) {
               canSend = false;
             }
           }
@@ -297,14 +294,14 @@ export const chatService = {
     if (!canInitiateChat(me.role, other.role)) {
       if (
         me.role === "USER" &&
-        (other.role === "ADMIN" || other.role === "SUPER_ADMIN")
+        (CHAT_WEIGHTS[other.role] >= CHAT_WEIGHTS["ADMIN"])
       ) {
         throw new ApiError(
           403,
           "You cannot start a chat with this user. They must initiate the conversation first."
         );
       }
-      if (me.role === "ELITE" && other.role === "SUPER_ADMIN") {
+      if (me.role === "ELITE" && CHAT_WEIGHTS[other.role] >= CHAT_WEIGHTS["ADMIN"]) {
         throw new ApiError(
           403,
           "You cannot start a chat with this user. They must initiate the conversation first."
@@ -379,7 +376,7 @@ export const chatService = {
     if (!project) throw new ApiError(404, "Project not found");
 
     // Admin and Super Admin can access any project chat
-    const isAdminPlus = role === "ADMIN" || role === "SUPER_ADMIN";
+    const isAdminPlus = CHAT_WEIGHTS[role] >= CHAT_WEIGHTS["ADMIN"];
 
     // Elite and User need to be project members
     if (!isAdminPlus) {
@@ -410,7 +407,7 @@ export const chatService = {
     });
     const desired = new Set(members.map((m) => m.userId));
 
-    // Always add the current user to desired members (especially for ADMIN/SUPER_ADMIN)
+    // Always add the current user to desired members (especially for ADMIN/RESELLER_SUPER_ADMIN)
     desired.add(userId);
 
     const existing = await prisma.conversationMember.findMany({
@@ -478,14 +475,14 @@ export const chatService = {
     let canRead = isParticipant;
 
     if (!isParticipant) {
-      if (me.role === "SUPER_ADMIN") canRead = true;
-      else if ((me.role === "ADMIN" || me.role === "TENANT") && convo.type === "PROJECT") canRead = true;
+      if (CHAT_WEIGHTS[me.role] >= CHAT_WEIGHTS["RESELLER_SUPER_ADMIN"]) canRead = true;
+      else if ((me.role === "ADMIN" || me.role === "USER") && convo.type === "PROJECT") canRead = true;
     }
 
     if (!canRead) throw new ApiError(403, "Not allowed to read this conversation");
 
     if (isParticipant && convo.type === "PROJECT" && convo.project) {
-      const isAdminPlus = me.role === "ADMIN" || me.role === "SUPER_ADMIN";
+      const isAdminPlus = CHAT_WEIGHTS[me.role] >= CHAT_WEIGHTS["ADMIN"];
       if (!isAdminPlus) {
         const projectMember = await prisma.projectMember.findUnique({
           where: { projectId_userId: { projectId: convo.project.id, userId } },
@@ -561,7 +558,7 @@ export const chatService = {
     // For project conversations, verify ELITE/USER are still project members
     if (convo.type === "PROJECT" && convo.project) {
       const isAdminPlus =
-        member.user.role === "ADMIN" || member.user.role === "SUPER_ADMIN";
+        CHAT_WEIGHTS[member.user.role] >= CHAT_WEIGHTS["ADMIN"];
 
       // Enforce Read-Only Announcements Channels
       if (convo.project.name.toLowerCase().includes("announcement") && !isAdminPlus) {
@@ -701,7 +698,7 @@ export const chatService = {
     if (msg.conversation.organizationId !== orgId) throw new ApiError(403, "Unauthorized");
 
     const me = await prisma.user.findUnique({ where: { id: userId } });
-    const isAdmin = me?.role === "ADMIN" || me?.role === "SUPER_ADMIN";
+    const isAdmin = (CHAT_WEIGHTS[me?.role ?? ''] ?? 0) >= CHAT_WEIGHTS["ADMIN"];
 
     if (msg.senderId !== userId && !isAdmin) {
       throw new ApiError(403, "Not allowed to delete this message");

@@ -24,7 +24,7 @@ type EmergencyEvent = {
 
 export default function EmergencyPage() {
   const { user } = useAuthStore();
-  const isSuper = user?.role === "SUPER_ADMIN";
+  const isSuper = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "");
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

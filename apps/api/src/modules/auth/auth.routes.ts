@@ -47,3 +47,4 @@ authRouter.get("/sso/google/callback", authController.ssoGoogleCallback);
 authRouter.get("/sso/microsoft", authController.ssoMicrosoftStart);
 authRouter.get("/sso/microsoft/callback", authController.ssoMicrosoftCallback);
 authRouter.post("/sso/exchange-otp", authController.exchangeOtp);
+authRouter.post("/switch-org", requireAuth, authController.switchOrg);

@@ -21,7 +21,7 @@ export default function HRPage() {
   const [to, setTo] = useState("");
   const [reason, setReason] = useState("");
 
-  const isManager = ["ADMIN", "SUPER_ADMIN"].includes(user?.role || "");
+  const isManager = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "");
 
   // Document Generator state
   const [docModal, setDocModal] = useState<{ open: boolean; emp: any; type: "PAYSLIP" | "LETTER" }>({ open: false, emp: null, type: "PAYSLIP" });

@@ -9,6 +9,34 @@ import {
   AlertCircle, CheckCircle, Plus, Users, RefreshCw, DollarSign
 } from 'lucide-react';
 
+const COUNTRIES = [
+  { name: 'India', code: 'IN', phoneCode: '+91', tax1Label: 'GST Number', tax1Placeholder: '27AAPFU0939F1ZV', tax2Label: 'PAN Number', tax2Placeholder: 'AAPFU0939F' },
+  { name: 'United States', code: 'US', phoneCode: '+1', tax1Label: 'EIN / Tax ID', tax1Placeholder: '12-3456789', tax2Label: 'State Tax ID / SSN', tax2Placeholder: '123-45-6789' },
+  { name: 'United Kingdom', code: 'GB', phoneCode: '+44', tax1Label: 'VAT Number', tax1Placeholder: 'GB123456789', tax2Label: 'Company Registration Number (CRN)', tax2Placeholder: '12345678' },
+  { name: 'Australia', code: 'AU', phoneCode: '+61', tax1Label: 'Australian Business Number (ABN)', tax1Placeholder: '51 824 753 556', tax2Label: 'Australian Company Number (ACN)', tax2Placeholder: '123 456 789' },
+  { name: 'Singapore', code: 'SG', phoneCode: '+65', tax1Label: 'Unique Entity Number (UEN)', tax1Placeholder: '201234567N', tax2Label: 'GST Registration Number', tax2Placeholder: 'M90123456X' },
+  { name: 'Japan', code: 'JP', phoneCode: '+81', tax1Label: 'Corporate Number', tax1Placeholder: '1234567890123', tax2Label: 'Individual Number / My Number', tax2Placeholder: '123456789012' },
+  { name: 'Malaysia', code: 'MY', phoneCode: '+60', tax1Label: 'SST ID', tax1Placeholder: 'W10-1808-32000030', tax2Label: 'Company Registration Number (BRN)', tax2Placeholder: '202001012345' },
+  { name: 'Thailand', code: 'TH', phoneCode: '+66', tax1Label: 'Tax Identification Number (TIN)', tax1Placeholder: '0105556000123', tax2Label: 'VAT ID', tax2Placeholder: '13-digit number' },
+  { name: 'Vietnam', code: 'VN', phoneCode: '+84', tax1Label: 'Enterprise Identification Number (MSDN)', tax1Placeholder: '0102030405', tax2Label: 'Tax Code (Mã số thuế)', tax2Placeholder: '0102030405' },
+  { name: 'Indonesia', code: 'ID', phoneCode: '+62', tax1Label: 'NPWP (Taxpayer Number)', tax1Placeholder: '01.234.567.8-901.000', tax2Label: 'NIB (Single Business Number)', tax2Placeholder: '13-digit number' },
+  { name: 'Philippines', code: 'PH', phoneCode: '+63', tax1Label: 'Tax Identification Number (TIN)', tax1Placeholder: '123-456-789-000', tax2Label: 'SEC Registration Number', tax2Placeholder: 'CS201012345' },
+];
+
+const getCountryConfig = (countryName: string) => {
+  const found = COUNTRIES.find(c => c.name.toLowerCase() === countryName?.toLowerCase());
+  if (found) return found;
+  return {
+    name: countryName || 'Other',
+    code: 'OTHER',
+    phoneCode: '+',
+    tax1Label: 'Business Registry No (BRN)',
+    tax1Placeholder: 'e.g. BRN123456',
+    tax2Label: 'Tax Identification No (TIN)',
+    tax2Placeholder: 'e.g. TIN123456',
+  };
+};
+
 interface Contact {
   id: string;
   name: string;
@@ -204,10 +232,10 @@ export default function Customer360Page() {
                   </div>
                 )}
                 {customer.gstNumber && (
-                  <div className="text-sm text-gray-400">GST: <span className="text-gray-200">{customer.gstNumber}</span></div>
+                  <div className="text-sm text-gray-400">{getCountryConfig(customer.country ?? '').tax1Label}: <span className="text-gray-200">{customer.gstNumber}</span></div>
                 )}
                 {customer.panNumber && (
-                  <div className="text-sm text-gray-400">PAN: <span className="text-gray-200">{customer.panNumber}</span></div>
+                  <div className="text-sm text-gray-400">{getCountryConfig(customer.country ?? '').tax2Label}: <span className="text-gray-200">{customer.panNumber}</span></div>
                 )}
               </div>
             </div>

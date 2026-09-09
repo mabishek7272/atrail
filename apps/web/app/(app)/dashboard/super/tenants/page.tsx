@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
-import { getOrganizations, updateOrganization } from "@/lib/api-extensions";
+import { getOrganizations, updateOrganization, createOrganization } from "@/lib/api-extensions";
 import { useAuthStore } from "@/lib/auth-store";
 import { Building2, Edit, Save, X, Users, Briefcase, Eye } from "lucide-react";
+import Modal from "@/components/ui/Modal";
+import Button from "@/components/ui/Button";
 
 type Organization = {
   id: string;
@@ -27,6 +29,11 @@ export default function TenantsPage() {
   const [editName, setEditName] = useState("");
   const [editLogo, setEditLogo] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Create Form State
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState("CLIENT");
 
   useEffect(() => {
     loadOrgs();
@@ -81,8 +88,31 @@ export default function TenantsPage() {
     }
   };
 
+  const handleCreateOrganization = async () => {
+    if (!token || !newName.trim()) return;
+    setBusy(true);
+    try {
+      const res = await createOrganization(token, { name: newName.trim(), orgType: newType });
+      if (res.ok && res.organization) {
+        setOrganizations([res.organization, ...organizations]);
+        setCreateOpen(false);
+        setNewName("");
+      } else {
+        alert(res.message || "Failed to create organization");
+      }
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <AppShell title="Tenant Management" subtitle="Profile and manage organizations across the platform.">
+    <AppShell 
+      title="Tenant Management" 
+      subtitle="Profile and manage organizations across the platform."
+      right={<Button onClick={() => setCreateOpen(true)}>+ New Organization</Button>}
+    >
       <div className="max-w-5xl mx-auto py-6">
         
         {loading ? (
@@ -194,6 +224,40 @@ export default function TenantsPage() {
           </div>
         )}
       </div>
+      
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Create Organization"
+        footer={
+          <div className="flex justify-end gap-2 w-full">
+            <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={busy}>Cancel</Button>
+            <Button onClick={handleCreateOrganization} disabled={busy || !newName.trim()}>Create</Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Organization Name</label>
+            <input 
+              className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+              value={newName} onChange={(e) => setNewName(e.target.value)}
+              placeholder="Company Name"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Type</label>
+            <select
+              className="w-full glass-panel border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary"
+              value={newType} onChange={(e) => setNewType(e.target.value)}
+            >
+              <option value="CLIENT">Client</option>
+              <option value="RESELLER">Reseller</option>
+              <option value="INTERNAL">Internal</option>
+            </select>
+          </div>
+        </div>
+      </Modal>
     </AppShell>
   );
 }

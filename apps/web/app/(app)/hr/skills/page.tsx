@@ -15,7 +15,7 @@ export default function SkillMatrixPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   
   const [newSkill, setNewSkill] = useState("");
-  const isManager = ["ADMIN", "SUPER_ADMIN"].includes(user?.role || "");
+  const isManager = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "");
 
   const loadData = async () => {
     if (!token) return;

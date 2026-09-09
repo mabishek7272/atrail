@@ -50,7 +50,7 @@ export function AiAssistant() {
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: err?.message ?? "Connection to AI service failed. Check that NVIDIA_API_KEY is set." },
+        { role: "assistant", content: err?.message ?? "Connection to AI service failed. Please try again." },
       ]);
     } finally {
       setIsLoading(false);

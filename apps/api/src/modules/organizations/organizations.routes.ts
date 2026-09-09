@@ -4,8 +4,8 @@ import { requireAuth, requireRole } from "../../middlewares/auth.js";
 
 export const organizationsRouter = Router();
 
-// Only SUPER_ADMIN can manage organizations
-organizationsRouter.use(requireAuth, requireRole("SUPER_ADMIN"));
+// Only RESELLER_SUPER_ADMIN can manage organizations
+organizationsRouter.use(requireAuth, requireRole("RESELLER_SUPER_ADMIN"));
 
 organizationsRouter.get("/", organizationsController.list);
 organizationsRouter.post("/", organizationsController.create);

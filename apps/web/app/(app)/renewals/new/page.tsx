@@ -21,6 +21,7 @@ export default function NewRenewalPage() {
   const [users, setUsers]         = useState<User[]>([]);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
+  const [customVendor, setCustomVendor] = useState('');
 
   const [form, setForm] = useState({
     customerId:     searchParams.get('customerId') || '',
@@ -73,10 +74,30 @@ export default function NewRenewalPage() {
     }
     setSaving(true);
     try {
+      let finalVendorId = form.vendorId;
+      if (form.vendorId === 'others') {
+        if (!customVendor.trim()) {
+          setError('Please specify the custom vendor name.');
+          setSaving(false);
+          return;
+        }
+        const vRes = await authedFetch<{ ok: boolean; vendor: { id: string } }>('/assets/vendors', {
+          method: 'POST',
+          body: JSON.stringify({ name: customVendor.trim() }),
+        });
+        if (vRes.ok && vRes.vendor?.id) {
+          finalVendorId = vRes.vendor.id;
+        } else {
+          setError('Failed to register the custom vendor.');
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload: Record<string, unknown> = {
         customerId:     form.customerId,
         amId:           form.amId || user?.id,
-        vendorId:       form.vendorId,
+        vendorId:       finalVendorId,
         renewalDate:    new Date(form.renewalDate).toISOString(),
         expiryDate:     form.expiryDate ? new Date(form.expiryDate).toISOString() : new Date(form.renewalDate).toISOString(),
         cycleStartDate: form.cycleStartDate ? new Date(form.cycleStartDate).toISOString() : new Date().toISOString(),
@@ -132,12 +153,27 @@ export default function NewRenewalPage() {
               </Field>
             </div>
 
-            <Field label="Vendor *">
-              <select value={form.vendorId} onChange={e => set('vendorId', e.target.value)} required className={SELECT}>
-                <option value="">Select vendor...</option>
-                {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </Field>
+             <div>
+              <Field label="Vendor *">
+                <select value={form.vendorId} onChange={e => set('vendorId', e.target.value)} required className={SELECT}>
+                  <option value="">Select vendor...</option>
+                  {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  <option value="others">Others...</option>
+                </select>
+              </Field>
+              {form.vendorId === 'others' && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={customVendor}
+                    onChange={(e) => setCustomVendor(e.target.value)}
+                    placeholder="Enter custom vendor name..."
+                    required
+                    className={INPUT}
+                  />
+                </div>
+              )}
+            </div>
 
             <Field label="Account Manager">
               <select value={form.amId} onChange={e => set('amId', e.target.value)} className={SELECT}>

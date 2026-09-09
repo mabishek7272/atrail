@@ -88,7 +88,7 @@ type Vendor = { id: string; name: string };
 
 export default function AssetsPage() {
   const { user } = useAuthStore();
-  const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const isAdmin = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "");
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [users, setUsers] = useState<DirectoryUser[]>([]);

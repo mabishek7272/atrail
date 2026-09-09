@@ -208,7 +208,7 @@ licensesRouter.get("/categories", async (req, res, next) => {
   }
 });
 
-licensesRouter.post("/categories", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+licensesRouter.post("/categories", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const { name, subCategoryNames } = req.body;
@@ -244,7 +244,7 @@ licensesRouter.post("/categories", requireRole("ADMIN", "SUPER_ADMIN"), async (r
 // ─────────────────────────────────────────────
 // LICENSE CRUD ENDPOINTS
 // ─────────────────────────────────────────────
-licensesRouter.post("/", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+licensesRouter.post("/", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const orgId = u.orgId;
@@ -377,7 +377,7 @@ licensesRouter.post("/", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, n
   }
 });
 
-licensesRouter.patch("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+licensesRouter.patch("/:id", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const licenseId = req.params.id;
@@ -436,7 +436,7 @@ licensesRouter.patch("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, re
   }
 });
 
-licensesRouter.delete("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+licensesRouter.delete("/:id", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const licenseId = req.params.id;
@@ -460,7 +460,7 @@ licensesRouter.delete("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, r
 // ─────────────────────────────────────────────
 // ASSIGNMENT / REVOCATION ENDPOINTS
 // ─────────────────────────────────────────────
-licensesRouter.post("/:id/assign", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+licensesRouter.post("/:id/assign", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const licenseId = req.params.id;
@@ -512,7 +512,7 @@ licensesRouter.post("/:id/assign", requireRole("ADMIN", "SUPER_ADMIN"), async (r
   }
 });
 
-licensesRouter.post("/:id/revoke", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+licensesRouter.post("/:id/revoke", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const licenseId = req.params.id;

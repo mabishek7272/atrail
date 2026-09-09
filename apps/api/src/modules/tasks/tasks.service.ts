@@ -3,8 +3,13 @@ import { ApiError } from "../../utils/errors.js";
 import { Role } from "../../prisma-client.js";
 import { notificationsService } from "../notifications/notifications.service.js";
 
+const ROLE_W: Record<string, number> = {
+  GOD: 200, DEVELOPER: 190, RESELLER_SUPER_ADMIN: 150,
+  ADMIN: 100, ELITE: 80, USER: 70, INTERN: 30,
+};
+
 function isAdminPlus(role: string) {
-  return role === "ADMIN" || role === "SUPER_ADMIN";
+  return (ROLE_W[role] ?? 0) >= ROLE_W["ADMIN"];
 }
 
 async function ensureProjectAccess(
@@ -13,8 +18,9 @@ async function ensureProjectAccess(
   role: string,
   projectId: string
 ) {
+  const isGodLevel = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
   const project = await prisma.project.findFirst({
-    where: { id: projectId, organizationId: orgId },
+    where: isGodLevel ? { id: projectId } : { id: projectId, organizationId: orgId },
     select: { id: true, headId: true },
   });
   if (!project) throw new ApiError(404, "Project not found");
@@ -30,6 +36,37 @@ async function ensureProjectAccess(
 }
 
 export const tasksService = {
+  async allTasks(_userId: string, orgId: string, role: string) {
+    if (!isAdminPlus(role)) throw new ApiError(403, "Forbidden");
+
+    const isGodLevel = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+    const where = isGodLevel && orgId ? { project: { organizationId: orgId } }
+      : isGodLevel ? {}
+      : { project: { organizationId: orgId } };
+
+    const tasks = await prisma.task.findMany({
+      where,
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      take: 100,
+      include: {
+        project: { select: { id: true, name: true } },
+        assignedTo: { select: { id: true, fullName: true, role: true } },
+        assignedBy: { select: { id: true, fullName: true, role: true } },
+        submissions: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    return { tasks };
+  },
+
   async myTasks(userId: string, orgId: string) {
     const me = await prisma.user.findFirst({
       where: { id: userId, organizationId: orgId, isActive: true },
@@ -46,6 +83,8 @@ export const tasksService = {
       take: 100,
       include: {
         project: { select: { id: true, name: true } },
+        assignedTo: { select: { id: true, fullName: true, role: true } },
+        assignedBy: { select: { id: true, fullName: true, role: true } },
         submissions: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -118,10 +157,12 @@ export const tasksService = {
       },
     });
     
-    if (!task || task.project.organizationId !== orgId)
+    if (!task) throw new ApiError(404, "Task not found");
+    const isGodLevel = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+    if (!isGodLevel && task.project.organizationId !== orgId)
       throw new ApiError(404, "Task not found");
 
-    // RBAC: SUPER_ADMIN/ADMIN can see all, others need permission
+    // Admin+ can see all tasks
     if (isAdminPlus(role)) return task;
 
     // ELITE project head can see tasks in their project
@@ -151,6 +192,7 @@ export const tasksService = {
       title: string;
       description?: string;
       assignedToId: string;
+      priority?: string;
       dueAt?: string;
     }
   ) {
@@ -166,9 +208,12 @@ export const tasksService = {
     if (!isAdminPlus(role) && !isHead)
       throw new ApiError(403, "Not allowed to assign tasks in this project");
 
-    // assignedTo must be member and active
+    // assignedTo must exist and be active (GOD can assign across orgs)
+    const isGodLevel = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
     const target = await prisma.user.findFirst({
-      where: { id: body.assignedToId, organizationId: orgId, isActive: true },
+      where: isGodLevel
+        ? { id: body.assignedToId, isActive: true }
+        : { id: body.assignedToId, organizationId: orgId, isActive: true },
       select: { id: true, role: true },
     });
     if (!target) throw new ApiError(404, "Assignee not found");
@@ -181,7 +226,7 @@ export const tasksService = {
         },
       },
     });
-    if (!isMember) throw new ApiError(400, "Assignee is not a project member");
+    if (!isMember && !isAdminPlus(role)) throw new ApiError(400, "Assignee is not a project member");
 
     // Head can assign only to USER
     if (isHead && target.role !== Role.USER)
@@ -194,6 +239,7 @@ export const tasksService = {
         description: body.description,
         assignedToId: body.assignedToId,
         assignedById: actorId,
+        priority: body.priority ? body.priority.toUpperCase() : "NORMAL",
         dueAt: body.dueAt ? new Date(body.dueAt) : undefined,
       },
       include: {
@@ -372,5 +418,19 @@ export const tasksService = {
     ).catch(() => {});
 
     return { submission: updated };
+  },
+
+  async deleteTask(actorId: string, orgId: string, role: string, taskId: string) {
+    if (!isAdminPlus(role)) throw new ApiError(403, "Not allowed to delete tasks");
+
+    const isGodLevel = (ROLE_W[role] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+    const task = await prisma.task.findFirst({
+      where: isGodLevel ? { id: taskId } : { id: taskId, project: { organizationId: orgId } },
+      select: { id: true, title: true },
+    });
+    if (!task) throw new ApiError(404, "Task not found");
+
+    await prisma.task.delete({ where: { id: taskId } });
+    return { deleted: true };
   },
 };

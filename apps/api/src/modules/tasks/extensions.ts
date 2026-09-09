@@ -6,7 +6,7 @@ import { auditAction } from '../../lib/audit.js';
 const router = Router();
 
 // POST /tasks/:id/subtasks — Elite/Admin creates a sub-task
-router.post('/:id/subtasks', requireAuth, requireRole('ELITE', 'ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.post('/:id/subtasks', requireAuth, requireRole('ELITE', 'ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const creator = (req as any).user;
   const { title, description, assignedToId, dueAt } = req.body;
 
@@ -53,7 +53,7 @@ router.patch('/subtasks/:subTaskId', requireAuth, async (req: Request, res: Resp
 });
 
 // POST /tasks/:id/split — Elite splits task by cloning it to another user
-router.post('/:id/split', requireAuth, requireRole('ELITE', 'ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.post('/:id/split', requireAuth, requireRole('ELITE', 'ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const creator = (req as any).user;
   const { assignedToId, title, description, dueAt } = req.body;
 
@@ -116,6 +116,29 @@ router.get('/:id/comments', requireAuth, async (req: Request, res: Response) => 
     orderBy: { createdAt: 'asc' },
   });
   return res.json({ ok: true, comments });
+});
+
+// GET /tasks/all — Admin/SuperAdmin sees all org tasks
+router.get('/all', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN', 'ELITE', 'GOD', 'DEVELOPER'), async (req: Request, res: Response) => {
+  const u = (req as any).user;
+  const { status, assignedToId, projectId } = req.query as any;
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      project: { organizationId: u.orgId },
+      ...(status && { status }),
+      ...(assignedToId && { assignedToId }),
+      ...(projectId && { projectId }),
+    },
+    include: {
+      assignedTo: { select: { id: true, fullName: true, role: true } },
+      assignedBy: { select: { id: true, fullName: true } },
+      project:    { select: { id: true, name: true } },
+      submissions: { select: { id: true, status: true, createdAt: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  return res.json({ ok: true, tasks });
 });
 
 export { router as taskExtensionsRouter };

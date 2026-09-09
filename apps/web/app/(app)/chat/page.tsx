@@ -50,6 +50,12 @@ function initials(name?: string) {
   return (parts[0]?.[0] ?? "U") + (parts[1]?.[0] ?? "");
 }
 
+function scrollToBottom(containerRef: React.RefObject<HTMLDivElement>) {
+  if (containerRef.current) {
+    containerRef.current.scrollTop = containerRef.current.scrollHeight;
+  }
+}
+
 export default function ChatPage() {
   const { user, accessToken } = useAuthStore();
   const searchParams = useSearchParams();
@@ -77,6 +83,11 @@ export default function ChatPage() {
   const [userQ, setUserQ] = useState("");
   const [toUserId, setToUserId] = useState("");
 
+  // team chat modal
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+
   // chat permission state
   const [permissionStatus, setPermissionStatus] = useState<
     "NONE" | "PENDING" | "ACCEPTED" | "REJECTED" | "BLOCKED"
@@ -84,6 +95,7 @@ export default function ChatPage() {
   const [requesting, setRequesting] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   const loadConvs = async () => {
     setErr(null);
@@ -158,7 +170,7 @@ export default function ChatPage() {
       if (reset) {
         setTimeout(
           () =>
-            bottomRef.current?.scrollIntoView({ behavior: "instant" as any }),
+            scrollToBottom(messagesContainerRef),
           50
         );
         // Mark as read immediately
@@ -274,7 +286,7 @@ export default function ChatPage() {
       );
 
       setTimeout(
-        () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
+        () => scrollToBottom(messagesContainerRef),
         50
       );
     };
@@ -412,7 +424,7 @@ export default function ChatPage() {
         )
       );
       setTimeout(
-        () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
+        () => scrollToBottom(messagesContainerRef),
         50
       );
     } catch (e: any) {
@@ -431,6 +443,42 @@ export default function ChatPage() {
     setUserQ("");
     setToUserId("");
     await loadUsers();
+  };
+
+  const openTeamChat = async () => {
+    setTeamOpen(true);
+    setSelectedProjectId("");
+    try {
+      const res = await authedFetch<{ ok: true; projects: { id: string; name: string }[] }>(
+        "/projects"
+      );
+      setProjects(res.projects ?? []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const createTeamChat = async () => {
+    if (!selectedProjectId) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await authedFetch<{ ok: true; conversation: any }>(
+        "/chat/project",
+        {
+          method: "POST",
+          body: JSON.stringify({ projectId: selectedProjectId }),
+        }
+      );
+      const id = res.conversation?.id;
+      if (id) setSelectedId(id);
+      setTeamOpen(false);
+      toast.success("Team chat created");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to create team chat");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const createDirect = async () => {
@@ -473,20 +521,18 @@ export default function ChatPage() {
       const myRole = user?.role;
       const theirRole = u.role;
 
-      // SUPER_ADMIN can initiate with everyone
-      if (myRole === "SUPER_ADMIN") return true;
+      const W: Record<string,number> = { GOD:200,DEVELOPER:190,RESELLER_SUPER_ADMIN:150,ADMIN:100,ELITE:80,USER:70,INTERN:30 };
+      const mw = W[myRole ?? ""] ?? 0;
 
-      // ADMIN can initiate with everyone
-      if (myRole === "ADMIN") return true;
+      // GOD / DEVELOPER / RESELLER_SUPER_ADMIN / ADMIN can initiate with everyone
+      if (mw >= W["ADMIN"]) return true;
 
       // ELITE can initiate with USER, ELITE, and ADMIN
       if (myRole === "ELITE")
-        return (
-          theirRole === "USER" || theirRole === "ELITE" || theirRole === "ADMIN"
-        );
+        return theirRole === "USER" || theirRole === "ELITE" || theirRole === "ADMIN";
 
-      // USER can only initiate with ELITE
-      if (myRole === "USER") return theirRole === "ELITE";
+      // USER can only initiate with ELITE+
+      if (myRole === "USER") return (W[theirRole] ?? 0) >= W["ELITE"];
 
       return false;
     });
@@ -505,7 +551,7 @@ export default function ChatPage() {
       subtitle="Hierarchy-safe messaging + realtime delivery."
       right={
         <div className="flex items-center gap-2">
-          {(user?.role === "ADMIN" || user?.role === "SUPER_ADMIN") && (
+          {(["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "")) && (
             <Link href="/chat/inbox">
               <Button variant="ghost">Requests</Button>
             </Link>
@@ -537,6 +583,15 @@ export default function ChatPage() {
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search conversations…"
             />
+            {(["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "")) && (
+              <Button
+                onClick={openTeamChat}
+                variant="secondary"
+                className="w-full"
+              >
+                + Create Team Chat
+              </Button>
+            )}
 
             {loading ? (
               <div className="space-y-2">
@@ -627,7 +682,7 @@ export default function ChatPage() {
             ) : (
               <>
                 {/* Messages */}
-                <div className="flex-1 overflow-auto rounded-2xl border border-primary/20 glass-panel glass-panel p-4">
+                <div ref={messagesContainerRef} className="flex-1 overflow-auto rounded-2xl border border-primary/20 glass-panel glass-panel p-4">
                   <div className="flex justify-center mb-3">
                     <Button
                       variant="secondary"
@@ -793,6 +848,50 @@ export default function ChatPage() {
               <div className="px-4 py-6 text-sm text-text-muted">
                 No users found.
               </div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={teamOpen}
+        title="Create Team Chat"
+        subtitle="Pick a project to create a team conversation."
+        onClose={() => (!busy ? setTeamOpen(false) : null)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setTeamOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={createTeamChat} disabled={busy || !selectedProjectId}>
+              Create
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="max-h-[360px] overflow-auto rounded-2xl border border-primary/20 glass-panel">
+            {projects.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-text-muted">
+                No projects found.
+              </div>
+            ) : (
+              projects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedProjectId(p.id)}
+                  className={
+                    "w-full text-left px-4 py-3 border-b border-zinc-100 hover:glass-panel " +
+                    (selectedProjectId === p.id ? "glass-panel" : "")
+                  }
+                >
+                  <div className="text-sm font-semibold">{p.name}</div>
+                </button>
+              ))
             )}
           </div>
         </div>

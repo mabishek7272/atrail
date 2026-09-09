@@ -1,161 +1,152 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { ApiError } from "../utils/errors.js";
 
-export enum RenewalOSRole {
-  ORG_OWNER = "ORG_OWNER",
-  ORG_ADMIN = "ORG_ADMIN",
-  SALES_MANAGER = "SALES_MANAGER",
-  ACCOUNT_MANAGER = "ACCOUNT_MANAGER",
-  FINANCE = "FINANCE",
-  READ_ONLY = "READ_ONLY",
-  EXTERNAL_CUSTOMER = "EXTERNAL_CUSTOMER",
-}
+// ─── Role Hierarchy ───────────────────────────────────────────────────────────
+// Three tiers:
+//   Platform  : GOD (200), DEVELOPER (190)
+//   Reseller  : RESELLER_SUPER_ADMIN (150)
+//   Client Org: ADMIN (100), ELITE (80), USER (70), INTERN (30)
 
-// Role hierarchy: higher roles can do what lower roles can
-const roleHierarchy: Record<RenewalOSRole, number> = {
-  [RenewalOSRole.ORG_OWNER]: 100,
-  [RenewalOSRole.ORG_ADMIN]: 90,
-  [RenewalOSRole.SALES_MANAGER]: 80,
-  [RenewalOSRole.ACCOUNT_MANAGER]: 70,
-  [RenewalOSRole.FINANCE]: 60,
-  [RenewalOSRole.READ_ONLY]: 20,
-  [RenewalOSRole.EXTERNAL_CUSTOMER]: 10,
+export const ROLE_WEIGHTS: Record<string, number> = {
+  GOD:                   200,
+  DEVELOPER:             190,
+  RESELLER_SUPER_ADMIN:  150,
+  ADMIN:                 100,
+  ELITE:                 80,
+  USER:                  70,
+  INTERN:                30,
 };
 
-export function requireRoles(...requiredRoles: RenewalOSRole[]): RequestHandler {
+// GOD-hardcoded emails — only these can ever be GOD
+export const GOD_EMAILS = new Set([
+  "arunkumar.anr@gmail.com",
+  "m.abishek7272@gmail.com",
+]);
+
+// Roles that ONLY a GOD user can assign
+export const GOD_ONLY_ASSIGNABLE = new Set(["GOD", "DEVELOPER", "RESELLER_SUPER_ADMIN"]);
+
+// Roles that GOD or RESELLER_SUPER_ADMIN can assign (to create client org admins)
+export const RESELLER_ASSIGNABLE = new Set(["ADMIN", "ELITE", "USER", "INTERN"]);
+
+// ─── Middleware factories ─────────────────────────────────────────────────────
+
+export function requireRole(...roles: string[]): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
     const user = (req as any).user;
+    if (!user) return next(new ApiError(401, "Unauthorized"));
 
-    if (!user) {
-      return next(new ApiError(401, "Unauthorized"));
+    const weight = ROLE_WEIGHTS[user.role] ?? 0;
+    const minRequired = Math.min(...roles.map((r) => ROLE_WEIGHTS[r] ?? 999));
+
+    if (weight >= minRequired) return next();
+    return next(new ApiError(403, `Requires one of: ${roles.join(", ")}`));
+  };
+}
+
+export function requireGod(): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const user = (req as any).user;
+    if (!user) return next(new ApiError(401, "Unauthorized"));
+    if (user.role !== "GOD" && user.role !== "DEVELOPER") {
+      return next(new ApiError(403, "Platform-level access only"));
     }
-
-    const userRole = user.role as RenewalOSRole;
-    const hasRequiredRole = requiredRoles.some(
-      (role) => roleHierarchy[userRole] >= roleHierarchy[role]
-    );
-
-    if (!hasRequiredRole) {
-      return next(new ApiError(403, `Forbidden: Requires one of ${requiredRoles.join(", ")}`));
-    }
-
     next();
   };
 }
 
-export function requirePermission(permission: string): RequestHandler {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    const user = (req as any).user;
-
-    if (!user) {
-      return next(new ApiError(401, "Unauthorized"));
-    }
-
-    const userRole = user.role as RenewalOSRole;
-    const permissions = getPermissionsForRole(userRole);
-
-    if (!permissions.includes(permission)) {
-      return next(new ApiError(403, `Forbidden: Missing permission "${permission}"`));
-    }
-
-    next();
-  };
+export function requireResellerOrAbove(): RequestHandler {
+  return requireRole("RESELLER_SUPER_ADMIN", "DEVELOPER", "GOD");
 }
 
-export function getPermissionsForRole(role: RenewalOSRole): string[] {
-  const basePermissions: Record<RenewalOSRole, string[]> = {
-    [RenewalOSRole.ORG_OWNER]: [
-      "manage_billing",
-      "manage_organization",
-      "delete_organization",
-      "manage_users",
-      "view_all_data",
-      "edit_all_renewals",
-      "manage_commissions",
-    ],
-    [RenewalOSRole.ORG_ADMIN]: [
-      "manage_users",
-      "manage_integrations",
-      "manage_masters",
-      "view_all_data",
-      "edit_all_renewals",
-      "manage_commissions",
-    ],
-    [RenewalOSRole.SALES_MANAGER]: [
-      "view_all_pipelines",
-      "reassign_accounts",
-      "run_reports",
-      "view_all_renewals",
-      "edit_team_renewals",
-      "view_commissions",
-    ],
-    [RenewalOSRole.ACCOUNT_MANAGER]: [
-      "manage_own_customers",
-      "execute_renewals",
-      "create_quotes",
-      "close_deals",
-      "view_own_renewals",
-      "request_payout",
-      "view_own_commissions",
-    ],
-    [RenewalOSRole.FINANCE]: [
-      "view_payments",
-      "view_invoices",
-      "manage_ar",
-      "reconcile_commissions",
-      "view_dso_reports",
-      "view_financial_reports",
-    ],
-    [RenewalOSRole.READ_ONLY]: [
-      "view_all_data",
-    ],
-    [RenewalOSRole.EXTERNAL_CUSTOMER]: [
-      "view_own_renewals",
-      "approve_quotes",
-      "make_payments",
-    ],
-  };
+// ─── Role-assignment guard ────────────────────────────────────────────────────
 
-  return basePermissions[role] || [];
-}
-
-export function canAccessResource(userRole: RenewalOSRole, resourceOwnerId: string, userId: string): boolean {
-  // OWNER and ADMIN can access anything
-  if (
-    roleHierarchy[userRole] >= roleHierarchy[RenewalOSRole.ORG_ADMIN]
-  ) {
-    return true;
+export function canAssignRole(actorRole: string, targetRole: string): boolean {
+  if (GOD_ONLY_ASSIGNABLE.has(targetRole)) {
+    return actorRole === "GOD" || actorRole === "DEVELOPER";
   }
-
-  // Other roles can only access their own resources
-  return resourceOwnerId === userId;
+  if (targetRole === "ADMIN") {
+    return ROLE_WEIGHTS[actorRole] >= ROLE_WEIGHTS["RESELLER_SUPER_ADMIN"];
+  }
+  if (targetRole === "ELITE") {
+    return ROLE_WEIGHTS[actorRole] >= ROLE_WEIGHTS["ADMIN"];
+  }
+  if (targetRole === "USER" || targetRole === "INTERN") {
+    return ROLE_WEIGHTS[actorRole] >= ROLE_WEIGHTS["ELITE"];
+  }
+  return false;
 }
+
+// ─── Org context guard ────────────────────────────────────────────────────────
 
 export function validateOrgContext(): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
     const user = (req as any).user;
     const requestOrgId = req.params.orgId || req.body?.organizationId || (req as any).query?.orgId;
 
-    if (!user) {
-      return next(new ApiError(401, "Unauthorized"));
-    }
+    if (!user) return next(new ApiError(401, "Unauthorized"));
 
-    // If org is specified in request, verify it matches user's org
+    // GOD and DEVELOPER can operate on any org
+    if (user.role === "GOD" || user.role === "DEVELOPER") return next();
+
     if (requestOrgId && requestOrgId !== user.orgId) {
       return next(new ApiError(403, "Organization mismatch"));
     }
-
     next();
   };
 }
 
-export const roleBasedDataFilter = (userRole: RenewalOSRole, data: any[]): any[] => {
-  // OWNER and ADMIN see all data
-  if (roleHierarchy[userRole] >= roleHierarchy[RenewalOSRole.ORG_ADMIN]) {
-    return data;
-  }
+// ─── Legacy: RenewalOSRole enum (kept for renewals routes) ───────────────────
+export enum RenewalOSRole {
+  ORG_OWNER        = "ORG_OWNER",
+  ORG_ADMIN        = "ORG_ADMIN",
+  SALES_MANAGER    = "SALES_MANAGER",
+  ACCOUNT_MANAGER  = "ACCOUNT_MANAGER",
+  FINANCE          = "FINANCE",
+  READ_ONLY        = "READ_ONLY",
+  EXTERNAL_CUSTOMER = "EXTERNAL_CUSTOMER",
+}
 
-  // Other roles might have restricted data based on their role
-  // (this is basic - extend as needed)
+// ─── Legacy aliases (kept for routes that haven't been updated yet) ───────────
+
+export function requireRoles(...roles: string[]): RequestHandler {
+  return requireRole(...roles);
+}
+
+export function canAccessResource(userRole: string, resourceOwnerId: string, userId: string): boolean {
+  if ((ROLE_WEIGHTS[userRole] ?? 0) >= ROLE_WEIGHTS["ADMIN"]) return true;
+  return resourceOwnerId === userId;
+}
+
+export function getPermissionsForRole(role: string): string[] {
+  const weight = ROLE_WEIGHTS[role] ?? 0;
+  const all = [
+    "manage_billing", "manage_organization", "delete_organization",
+    "manage_users", "view_all_data", "edit_all_renewals", "manage_commissions",
+    "manage_integrations", "manage_masters", "view_all_pipelines",
+    "reassign_accounts", "run_reports", "view_all_renewals", "edit_team_renewals",
+    "view_commissions", "manage_own_customers", "execute_renewals", "create_quotes",
+    "close_deals", "view_own_renewals", "request_payout", "view_own_commissions",
+    "view_payments", "view_invoices", "manage_ar", "reconcile_commissions",
+    "view_dso_reports", "view_financial_reports",
+  ];
+
+  if (weight >= ROLE_WEIGHTS["GOD"])                  return all;
+  if (weight >= ROLE_WEIGHTS["RESELLER_SUPER_ADMIN"]) return all.filter(p => p !== "delete_organization");
+  if (weight >= ROLE_WEIGHTS["ADMIN"])
+    return ["manage_users", "manage_integrations", "manage_masters", "view_all_data",
+            "edit_all_renewals", "manage_commissions", "view_all_pipelines",
+            "run_reports", "view_all_renewals"];
+  if (weight >= ROLE_WEIGHTS["ELITE"])
+    return ["view_all_pipelines", "reassign_accounts", "run_reports",
+            "view_all_renewals", "edit_team_renewals", "view_commissions"];
+  if (weight >= ROLE_WEIGHTS["USER"])
+    return ["manage_own_customers", "execute_renewals", "create_quotes",
+            "close_deals", "view_own_renewals", "request_payout", "view_own_commissions"];
+  return ["view_own_renewals"];
+}
+
+export function roleBasedDataFilter(userRole: string, data: any[]): any[] {
+  if ((ROLE_WEIGHTS[userRole] ?? 0) >= ROLE_WEIGHTS["ADMIN"]) return data;
   return data;
-};
+}

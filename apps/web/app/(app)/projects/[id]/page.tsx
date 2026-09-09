@@ -43,6 +43,8 @@ type TaskRow = {
   status: "ASSIGNED" | "IN_PROGRESS" | "SUBMITTED" | "ACCEPTED" | "REJECTED";
   createdAt: string;
   dueAt: string | null;
+  assignedToId: string;
+  assignedById: string;
   assignedTo: { id: string; fullName: string; role: string };
   assignedBy: { id: string; fullName: string; role: string };
   submissions: Array<{
@@ -93,8 +95,8 @@ export default function ProjectDetailPage({
   const { user } = useAuthStore();
   const router = useRouter();
 
-  // Keep permissions logic internal (do not show in UI)
-  const isAdminPlus = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const ROLE_W: Record<string, number> = { GOD:200, DEVELOPER:190, RESELLER_SUPER_ADMIN:150, ADMIN:100, ELITE:80, USER:70, INTERN:30 };
+  const isAdminPlus = (ROLE_W[user?.role ?? ""] ?? 0) >= ROLE_W["ADMIN"];
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -151,7 +153,7 @@ export default function ProjectDetailPage({
       setMembers(m.members ?? []);
       setTasks(t.tasks ?? []);
 
-      if (isAdminPlus && user?.role === "SUPER_ADMIN") {
+      if (isAdminPlus && (ROLE_W[user?.role ?? ""] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"]) {
         const orgsRes = await authedFetch<{ ok: true; organizations: {id: string, name: string}[] }>("/organizations");
         setOrganizations(orgsRes.organizations ?? []);
       }
@@ -178,14 +180,16 @@ export default function ProjectDetailPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalProjectId]);
 
-  // Load available users for adding members (ADMIN/SUPER_ADMIN only)
+  // Load available users for adding members (ADMIN+ only)
   const loadAvailableUsers = async () => {
     if (!isAdminPlus) return;
     try {
-      const res = await authedFetch<{ ok: true; users: UserLite[] }>("/users");
-      // Filter to only ELITE and USER (as per rules)
+      const isGodLevel = (ROLE_W[user?.role ?? ""] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+      const url = isGodLevel ? "/users?all=true" : "/users";
+      const res = await authedFetch<{ ok: true; users: UserLite[] }>(url);
+      // Show ELITE, USER and INTERN as eligible members
       const eligible = (res.users ?? []).filter(
-        (u) => u.role === "ELITE" || u.role === "USER"
+        (u) => ["ELITE", "USER", "INTERN"].includes(u.role)
       );
       // Exclude current members
       const memberIds = new Set(members.map((m) => m.user.id));
@@ -201,13 +205,16 @@ export default function ProjectDetailPage({
     }
   }, [addMemberOpen, isAdminPlus, members]);
 
-  // Load ELITE users for changing head or assigning elite
+  // Load ELITE/USER/INTERN users for changing head or assigning elite
   const [eliteUsers, setEliteUsers] = useState<UserLite[]>([]);
   const loadEliteUsers = async () => {
     if (!isAdminPlus) return;
     try {
-      const res = await authedFetch<{ ok: true; users: UserLite[] }>("/users");
-      setEliteUsers((res.users ?? []).filter((u) => u.role === "ELITE"));
+      const isGodLevel = (ROLE_W[user?.role ?? ""] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"];
+      const url = isGodLevel ? "/users?all=true" : "/users";
+      const res = await authedFetch<{ ok: true; users: UserLite[] }>(url);
+      // Allow promoting ELITE, USER or INTERN as project head
+      setEliteUsers((res.users ?? []).filter((u) => ["ELITE", "USER", "INTERN"].includes(u.role)));
     } catch (e) {
       // ignore
     }
@@ -227,7 +234,7 @@ export default function ProjectDetailPage({
   const [adminUsers, setAdminUsers] = useState<UserLite[]>([]);
 
   const loadAdminUsers = async () => {
-    if (user?.role !== "SUPER_ADMIN") return;
+    if (user?.role !== "RESELLER_SUPER_ADMIN") return;
     try {
       const res = await authedFetch<{ ok: true; users: UserLite[] }>("/users");
       setAdminUsers((res.users ?? []).filter((u) => u.role === "ADMIN"));
@@ -237,7 +244,7 @@ export default function ProjectDetailPage({
   };
 
   useEffect(() => {
-    if (assignAdminOpen && user?.role === "SUPER_ADMIN") {
+    if (assignAdminOpen && user?.role === "RESELLER_SUPER_ADMIN") {
       loadAdminUsers();
     }
   }, [assignAdminOpen, user]);
@@ -273,9 +280,15 @@ export default function ProjectDetailPage({
     if (t.length < 2) return toast.error("Task title is too short");
     if (!assignedToId) return toast.error("Pick an assignee");
 
+    const targets = assignedToId === "ALL"
+      ? assigneeOptions.map((u) => u.id)
+      : [assignedToId];
+
     const ok = await confirm({
       title: "Create task?",
-      message: "This will create a task and notify the assignee.",
+      message: assignedToId === "ALL"
+        ? `This will create a task for all ${targets.length} team members and notify each.`
+        : "This will create a task and notify the assignee.",
       confirmText: "Create",
     });
     if (!ok) return;
@@ -283,23 +296,28 @@ export default function ProjectDetailPage({
     setBusy(true);
     setErr(null);
     try {
-      await authedFetch("/tasks", {
-        method: "POST",
-        body: JSON.stringify({
-          projectId: finalProjectId,
-          title: t,
-          description: d ? d : undefined,
-          assignedToId,
-          dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
-        }),
-      });
+      await Promise.all(
+        targets.map((uid) =>
+          authedFetch("/tasks", {
+            method: "POST",
+            body: JSON.stringify({
+              projectId: finalProjectId,
+              title: t,
+              description: d ? d : undefined,
+              assignedToId: uid,
+              dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
+            }),
+          })
+        )
+      );
 
       setAssignOpen(false);
       setTitle("");
       setDesc("");
       setDueAt("");
+      setAssignedToId("");
 
-      toast.success("Task created");
+      toast.success(assignedToId === "ALL" ? `Task assigned to all ${targets.length} members` : "Task created");
       await load();
       setTab("tasks");
     } catch (e: any) {
@@ -409,7 +427,7 @@ export default function ProjectDetailPage({
 
   // Assign Admin
   const handleAssignAdmin = async () => {
-    if (user?.role !== "SUPER_ADMIN" || !finalProjectId || !newAdminId) return;
+    if (user?.role !== "RESELLER_SUPER_ADMIN" || !finalProjectId || !newAdminId) return;
 
     const ok = await confirm({
       title: "Assign Admin?",
@@ -536,7 +554,7 @@ export default function ProjectDetailPage({
 
   // Transfer project
   const handleTransferProject = async () => {
-    if (!isAdminPlus || user?.role !== "SUPER_ADMIN" || !finalProjectId || !targetOrgId) return;
+    if (!isAdminPlus || user?.role !== "RESELLER_SUPER_ADMIN" || !finalProjectId || !targetOrgId) return;
 
     const ok = await confirm({
       title: "Transfer project?",
@@ -644,7 +662,7 @@ export default function ProjectDetailPage({
               Delete Project
             </Button>
           )}
-          {isAdminPlus && user?.role === "SUPER_ADMIN" && (
+          {isAdminPlus && (ROLE_W[user?.role ?? ""] ?? 0) >= ROLE_W["RESELLER_SUPER_ADMIN"] && (
             <Button
               variant="secondary"
               onClick={() => setTransferOpen(true)}
@@ -674,13 +692,13 @@ export default function ProjectDetailPage({
               subtitle={project?.description ?? "No description added yet."}
               right={
                 <div className="flex items-center gap-2">
-                  {user?.role === "SUPER_ADMIN" && project?.organization && (
+                  {user?.role === "RESELLER_SUPER_ADMIN" && project?.organization && (
                     <Badge tone="blue">{project.organization.name}</Badge>
                   )}
-                  {user?.role === "SUPER_ADMIN" && (
+                  {user?.role === "RESELLER_SUPER_ADMIN" && (
                     <Button variant="secondary" onClick={() => setAssignAdminOpen(true)} className="text-xs px-2 py-1 h-auto" disabled={busy}>Assign Admin</Button>
                   )}
-                  {(user?.role === "SUPER_ADMIN" || user?.role === "ADMIN") && (
+                  {(user?.role === "RESELLER_SUPER_ADMIN" || user?.role === "ADMIN") && (
                     <Button variant="secondary" onClick={() => setAssignEliteOpen(true)} className="text-xs px-2 py-1 h-auto" disabled={busy}>Assign Elite</Button>
                   )}
                   <Badge tone="neutral">
@@ -1107,13 +1125,21 @@ export default function ProjectDetailPage({
                           className="rounded-2xl border border-primary/20 glass-panel p-4"
                         >
                           <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold text-primary">
-                                {t.title}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <div className="text-sm font-semibold text-primary">
+                                  {t.title}
+                                </div>
+                                {t.assignedById === user?.id && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">You assigned</span>
+                                )}
+                                {t.assignedToId === user?.id && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">Assigned to you</span>
+                                )}
                               </div>
                               <div className="text-xs text-text-muted mt-1">
-                                Assigned to {t.assignedTo.fullName} • by{" "}
-                                {t.assignedBy.fullName}
+                                <span className="font-medium text-text-main">{t.assignedTo.fullName}</span>
+                                {" "}← assigned by <span className="font-medium text-text-main">{t.assignedBy.fullName}</span>
                                 {t.dueAt
                                   ? ` • Due ${new Date(t.dueAt).toLocaleString()}`
                                   : ""}
@@ -1227,6 +1253,9 @@ export default function ProjectDetailPage({
             className="w-full rounded-xl border border-primary/20 glass-panel px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
           >
             <option value="">Select assignee</option>
+            {assigneeOptions.length > 1 && (
+              <option value="ALL">👥 All team members ({assigneeOptions.length})</option>
+            )}
             {assigneeOptions.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.fullName} • {u.email}

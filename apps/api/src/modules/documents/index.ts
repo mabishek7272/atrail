@@ -115,7 +115,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
   if (!doc) return res.status(404).json({ ok: false, message: 'Document not found' });
 
-  const canDelete = doc.uploadedById === user.id || ['ADMIN', 'SUPER_ADMIN'].includes(user.role);
+  const canDelete = doc.uploadedById === user.id || ['ADMIN', 'RESELLER_SUPER_ADMIN'].includes(user.role);
   if (!canDelete) return res.status(403).json({ ok: false, message: 'Forbidden' });
 
   await prisma.document.delete({ where: { id: req.params.id } });

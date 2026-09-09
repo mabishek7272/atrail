@@ -98,6 +98,6 @@ export async function handlePasswordChangeFlow(ctx: Context, text: string) {
     const { setSession } = await import("../session.js");
     await setSession(chatId, cleanSession);
 
-    await ctx.reply("🎉 *Password changed successfully!*\n\nYou have been logged out of all active web sessions. Please log in again using your new password.", { parse_mode: "Markdown", ...mainMenu() });
+    await ctx.reply("🎉 <b>Password changed successfully!</b>\n\nYou have been logged out of all active web sessions. Please log in again using your new password.", { parse_mode: "HTML", ...mainMenu() });
   }
 }

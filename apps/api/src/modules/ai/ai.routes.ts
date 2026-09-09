@@ -25,25 +25,32 @@ router.get('/status', requireAuth, async (_req: Request, res: Response) => {
 router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   try {
     const { message, history = [] } = req.body;
+    const user = (req as any).user;
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ ok: false, error: 'message is required' });
     }
 
     const messages: aiService.ChatMessage[] = [
-      ...history,
+      ...history.slice(-10), // keep last 10 turns
       { role: 'user', content: message },
     ];
 
     const reply = await aiService.chat(messages, {
+      maxTokens: 600,
+      temperature: 0.5,
       systemPrompt:
-        'You are a helpful AI assistant embedded in AGMI Workflow, a business project management platform. Help users with tasks, projects, HR queries, scheduling, and general work questions. Be concise, professional, and friendly.',
+        `You are Atrail AI — a professional assistant built into the Atrail Enterprise Platform. ` +
+        `Help with tasks, projects, renewals, HR, scheduling, and business questions. ` +
+        `User role: ${user?.role ?? 'team member'}. ` +
+        `Be concise and professional. Keep responses under 200 words unless more detail is needed.`,
     });
 
-    return res.json({ ok: true, reply });
+    // reply.text is the string response from Claude
+    return res.json({ ok: true, reply: reply.text });
   } catch (err: any) {
     console.error('[AI chat error]', err.message);
-    return res.status(502).json({ ok: false, error: 'AI service unavailable. Make sure vLLM is running.' });
+    return res.status(502).json({ ok: false, error: 'AI service temporarily unavailable.' });
   }
 });
 

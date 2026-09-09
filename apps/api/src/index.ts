@@ -24,6 +24,8 @@ app.use(
       "http://localhost:3000",
       "http://127.0.0.1:3000",
       "http://[::1]:3000",
+      "http://localhost:3002",
+      "http://127.0.0.1:3002",
       "https://atrail.in",
       "https://www.atrail.in",
     ],
@@ -112,12 +114,19 @@ if (WEBHOOK_URL) {
     console.error("[AtrailBot] Failed to set webhook:", err?.message);
   });
 } else {
-  // Development / server without domain: long polling mode
-  bot.launch({ dropPendingUpdates: true }).then(() => {
-    console.log("[AtrailBot] Bot started in polling mode — @AtrailBot is live");
-  }).catch((err: any) => {
-    console.error("[AtrailBot] Failed to start bot:", err?.message);
-  });
+  // Polling mode — retry with backoff to handle 409 from rapid restarts
+  const startBot = (attempt = 1) => {
+    bot.launch({ dropPendingUpdates: true })
+      .then(() => console.log("[AtrailBot] @AtrailBot is live (polling)"))
+      .catch((err: any) => {
+        const is409 = err?.message?.includes("409");
+        const wait  = is409 ? 15000 : 5000; // 15s for 409, 5s for others
+        console.warn(`[AtrailBot] Start failed (attempt ${attempt}): ${err?.message} — retrying in ${wait/1000}s`);
+        if (attempt < 10) setTimeout(() => startBot(attempt + 1), wait);
+      });
+  };
+  // Small initial delay so previous polling session has time to close
+  setTimeout(() => startBot(), 5000);
 }
 
 process.once("SIGINT",  () => bot.stop("SIGINT"));

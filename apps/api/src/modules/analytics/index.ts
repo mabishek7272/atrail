@@ -6,7 +6,7 @@ import { requireRole } from '../../middlewares/auth.js';
 const router = Router();
 
 // GET /analytics/overview
-router.get('/overview', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.get('/overview', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const user = (req as any).user;
   const orgId = user.orgId;
 
@@ -60,7 +60,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
 });
 
 // GET /analytics/task-stats
-router.get('/task-stats', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.get('/task-stats', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const orgId = (req as any).user.orgId;
 
   const users = await prisma.user.findMany({
@@ -84,7 +84,7 @@ router.get('/task-stats', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), asyn
 });
 
 // GET /analytics/attendance-summary
-router.get('/attendance-summary', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+router.get('/attendance-summary', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN'), async (req: Request, res: Response) => {
   const orgId = (req as any).user.orgId;
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);

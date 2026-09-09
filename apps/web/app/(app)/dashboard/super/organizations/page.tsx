@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/toast";
 type Organization = {
   id: string;
   name: string;
+  orgType: "INTERNAL" | "RESELLER" | "CLIENT";
   createdAt: string;
   _count: {
     users: number;
@@ -28,6 +29,7 @@ export default function OrganizationsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newOrgType, setNewOrgType] = useState<"INTERNAL" | "RESELLER" | "CLIENT">("INTERNAL");
 
   const loadOrgs = async () => {
     setLoading(true);
@@ -51,11 +53,12 @@ export default function OrganizationsPage() {
     try {
       await authedFetch("/organizations", {
         method: "POST",
-        body: JSON.stringify({ name: newName.trim() }),
+        body: JSON.stringify({ name: newName.trim(), orgType: newOrgType }),
       });
       toast.success("Organization created successfully");
       setCreateOpen(false);
       setNewName("");
+      setNewOrgType("INTERNAL");
       loadOrgs();
     } catch (e: any) {
       toast.error(e.message || "Creation failed");
@@ -81,10 +84,10 @@ export default function OrganizationsPage() {
 
   return (
     <AppShell
-      title="Tenant Management"
+      title="Tenants Management"
       subtitle="Manage Multi-Tenant Organizations"
       right={
-        <Button onClick={() => setCreateOpen(true)} disabled={loading}>
+        <Button onClick={() => setCreateOpen(true)}>
           + New Organization
         </Button>
       }
@@ -118,6 +121,10 @@ export default function OrganizationsPage() {
                 <CardHeader title={org.name} subtitle={`ID: ${org.id}`} />
                 <CardContent>
                   <div className="space-y-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-text-muted font-bold uppercase tracking-wider">Type</span>
+                      <span className="text-primary font-bold">{org.orgType}</span>
+                    </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-text-muted font-bold uppercase tracking-wider">Users</span>
                       <span className="text-primary font-bold">{org._count.users}</span>
@@ -169,6 +176,18 @@ export default function OrganizationsPage() {
               placeholder="e.g. Acme Corp"
               autoFocus
             />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-text-main mb-2">Organization Type</label>
+            <select
+              value={newOrgType}
+              onChange={(e) => setNewOrgType(e.target.value as any)}
+              className="w-full bg-[#020b18]/60 border border-primary/20 rounded-lg px-4 py-2 text-white outline-none focus:border-primary font-medium"
+            >
+              <option value="INTERNAL">Internal</option>
+              <option value="RESELLER">Reseller</option>
+              <option value="CLIENT">Client</option>
+            </select>
           </div>
         </div>
       </Modal>

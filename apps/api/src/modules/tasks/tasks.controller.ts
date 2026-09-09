@@ -2,6 +2,16 @@ import type { Request, Response, NextFunction } from "express";
 import { tasksService } from "./tasks.service.js";
 
 export const tasksController = {
+  async allTasks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const u = (req as any).user;
+      const data = await tasksService.allTasks(u.id, u.orgId, u.role);
+      res.json({ ok: true, ...data });
+    } catch (e) {
+      next(e);
+    }
+  },
+
   async myTasks(req: Request, res: Response, next: NextFunction) {
     try {
       const u = (req as any).user;
@@ -100,6 +110,16 @@ export const tasksController = {
         req.body.decision,
         req.body.comment
       );
+      res.json({ ok: true, ...out });
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async deleteTask(req: Request, res: Response, next: NextFunction) {
+    try {
+      const u = (req as any).user;
+      const out = await tasksService.deleteTask(u.id, u.orgId, u.role, req.params.taskId);
       res.json({ ok: true, ...out });
     } catch (e) {
       next(e);

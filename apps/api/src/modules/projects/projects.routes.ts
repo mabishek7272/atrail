@@ -18,45 +18,45 @@ projectsRouter.get("/:id", projectsController.getOne);
 
 projectsRouter.post(
   "/",
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("ADMIN", "RESELLER_SUPER_ADMIN"),
   validateBody(createProjectSchema),
   projectsController.create
 );
 projectsRouter.patch(
   "/:id",
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("ADMIN", "RESELLER_SUPER_ADMIN"),
   validateBody(updateProjectSchema),
   projectsController.update
 );
 
 projectsRouter.post(
   "/:id/head",
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("ADMIN", "RESELLER_SUPER_ADMIN"),
   validateBody(setHeadSchema),
   projectsController.setHead
 );
 
 projectsRouter.post(
   "/:id/assign-admin",
-  requireRole("SUPER_ADMIN"),
+  requireRole("RESELLER_SUPER_ADMIN"),
   projectsController.assignAdmin
 );
 
 projectsRouter.post(
   "/:id/assign-elite",
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("ADMIN", "RESELLER_SUPER_ADMIN"),
   projectsController.assignElite
 );
 
 projectsRouter.delete(
   "/:id",
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("ADMIN", "RESELLER_SUPER_ADMIN", "GOD", "DEVELOPER"),
   projectsController.deleteProject
 );
 
 projectsRouter.get("/:id/members", projectsController.listMembers);
 
-// add/remove members: ADMIN/SUPER_ADMIN OR project HEAD (ELITE)
+// add/remove members: ADMIN/RESELLER_SUPER_ADMIN OR project HEAD (ELITE)
 projectsRouter.post(
   "/:id/members",
   validateBody(addMembersSchema),

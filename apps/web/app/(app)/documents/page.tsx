@@ -79,7 +79,7 @@ export default function DocumentsPage() {
                         <div className="font-semibold text-primary text-sm truncate pr-2" title={d.name}>
                           {d.name}
                         </div>
-                        {(user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || d.uploadedById === user?.id) && (
+                        {(user?.role === "ADMIN" || user?.role === "RESELLER_SUPER_ADMIN" || d.uploadedById === user?.id) && (
                           <button
                             onClick={() => handleDelete(d.id)}
                             className="text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"

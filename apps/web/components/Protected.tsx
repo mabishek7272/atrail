@@ -78,7 +78,8 @@ export default function Protected({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (user.role === "SUPER_ADMIN" || user.role === "ADMIN") return;
+    // GOD/DEVELOPER bypass profile check
+    if (user.role === "GOD" || user.role === "DEVELOPER") return;
     if (pathname === "/profile") return;
 
     let active = true;

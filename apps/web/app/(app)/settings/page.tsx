@@ -214,91 +214,99 @@ export default function SettingsPage() {
 
   return (
     <AppShell title="Account Settings" subtitle="Security and Preferences">
-      <div style={{ maxWidth: "640px", margin: "24px auto", display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div className="max-w-[640px] mx-auto my-6 flex flex-col gap-6">
 
         {/* ── 2FA Section ── */}
-        <section style={sectionStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "6px" }}>
-            <span style={{ fontSize: "1.5rem" }}><Shield size={24} className="text-blue-500" /></span>
-            <h2 style={{ fontSize: "1.15rem", fontWeight: 800, color: "#0f172a", margin: 0 }}>
+        <section className="glass-panel border border-primary/20 rounded-2xl p-6 md:p-8 shadow-premium text-white relative overflow-hidden">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="flex-shrink-0"><Shield size={24} className="text-primary drop-shadow-[0_0_8px_rgba(0,212,255,0.5)]" /></span>
+            <h2 className="text-lg font-bold text-white tracking-tight">
               Two-Factor Authentication
             </h2>
-            <span style={{
-              marginLeft: "auto", fontSize: "0.72rem", fontWeight: 700, padding: "3px 10px",
-              borderRadius: "20px", letterSpacing: "0.05em",
-              background: twoFAEnabled ? "#dcfce7" : "#fef9c3",
-              color: twoFAEnabled ? "#15803d" : "#92400e",
-            }}>
+            <span className={`ml-auto text-[10px] font-bold px-2.5 py-0.5 rounded-full tracking-wider ${
+              twoFAEnabled 
+                ? "bg-emerald-950/60 border border-emerald-500/30 text-emerald-400" 
+                : "bg-amber-950/60 border border-amber-500/30 text-amber-400"
+            }`}>
               {twoFAEnabled ? "ENABLED" : "NOT SET UP"}
             </span>
           </div>
-          <p style={{ color: "#64748b", fontSize: "0.85rem", marginBottom: "20px" }}>
+          <p className="text-text-muted text-sm mb-6 leading-relaxed">
             Protects your account with a time-based one-time password from Google Authenticator or Authy.
           </p>
 
           {msg && (
-            <div style={{
-              marginBottom: "16px", padding: "10px 14px", borderRadius: "10px", fontSize: "0.85rem",
-              background: msg.type === "success" ? "#f0fdf4" : "#fef2f2",
-              color:      msg.type === "success" ? "#166534" : "#991b1b",
-              border: `1px solid ${msg.type === "success" ? "#bbf7d0" : "#fecaca"}`,
-            }}>
-              <span className="flex items-center gap-1">
-                {msg.type === "success" ? <CheckCircle size={14} /> : <AlertTriangle size={14} />} {msg.text}
-              </span>
+            <div className={`mb-6 p-4 rounded-xl text-sm border flex items-center gap-2 ${
+              msg.type === "success" 
+                ? "bg-emerald-950/30 border-emerald-500/20 text-emerald-300" 
+                : "bg-red-950/30 border-red-500/20 text-red-300"
+            }`}>
+              {msg.type === "success" ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+              <span>{msg.text}</span>
             </div>
           )}
 
           {!twoFAEnabled && !qrCode && (
-            <button style={btnPrimary} onClick={handleSetup2FA} disabled={busy}>
-              <span className="flex items-center justify-center gap-2">
-                {busy ? "Setting up…" : <><Rocket size={16} /> Set Up 2FA</>}
-              </span>
+            <button 
+              className="btn-premium px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-blue-600 text-[#020b18] font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_12px_rgba(0,212,255,0.2)] hover:shadow-[0_6px_20px_rgba(0,212,255,0.35)] transition-all flex items-center gap-2"
+              onClick={handleSetup2FA} 
+              disabled={busy}
+            >
+              {busy ? "Setting up…" : <><Rocket size={16} /> Set Up 2FA</>}
             </button>
           )}
 
           {qrCode && (
-            <div style={{ background: "#f8faff", borderRadius: "14px", padding: "20px", border: "1px solid #e2eaf4" }}>
-              <p style={{ fontSize: "0.85rem", color: "#0f172a", marginBottom: "12px", fontWeight: 600 }}>
+            <div className="bg-[rgba(6,22,40,0.5)] border border-primary/10 rounded-xl p-5 mt-4 space-y-4">
+              <p className="text-sm font-semibold text-white">
                 1. Scan with Google Authenticator / Authy:
               </p>
-              <div style={{ background: "white", display: "inline-block", padding: "10px", borderRadius: "12px", border: "1px solid #e2eaf4", marginBottom: "14px" }}>
-                <img src={qrCode} alt="2FA QR Code" style={{ width: "160px", height: "160px", display: "block" }} />
+              <div className="bg-white p-2 rounded-xl inline-block border border-primary/20 shadow-premium">
+                <img src={qrCode} alt="2FA QR Code" className="w-[160px] h-[160px] block" />
               </div>
-              <div style={{ background: "#f1f5f9", borderRadius: "10px", padding: "8px 12px", marginBottom: "16px", fontFamily: "monospace", fontSize: "0.78rem", color: "#334155", wordBreak: "break-all" }}>
-                <span style={{ color: "#94a3b8" }}>Manual key: </span>{secret}
+              <div className="bg-[rgba(0,212,255,0.04)] border border-primary/10 rounded-lg p-3 font-mono text-xs text-primary/90 word-break-all flex flex-col gap-1">
+                <span className="text-text-muted text-[10px] uppercase font-sans tracking-wider font-semibold">Manual key:</span>
+                <span>{secret}</span>
               </div>
-              <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "#0f172a", marginBottom: "8px" }}>
+              <p className="text-sm font-semibold text-white">
                 2. Enter the 6-digit code to verify:
               </p>
-              <div style={{ display: "flex", gap: "10px" }}>
+              <div className="flex gap-3">
                 <input
                   type="text" inputMode="numeric" maxLength={6}
                   value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="000000"
-                  style={{ ...inputStyle, letterSpacing: "0.25em", textAlign: "center", fontWeight: 700 }}
+                  className="input-premium tracking-[0.25em] text-center font-bold text-lg max-w-[140px]"
                   onKeyDown={e => e.key === "Enter" && handleVerify2FA()}
                 />
-                <button style={btnPrimary} onClick={handleVerify2FA} disabled={busy}>
-                  {busy ? "…" : <span className="flex items-center gap-1">Verify <CheckCircle size={14} /></span>}
+                <button 
+                  className="btn-premium px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-blue-600 text-[#020b18] font-bold cursor-pointer disabled:opacity-50 shadow-[0_4px_12px_rgba(0,212,255,0.2)] flex items-center gap-1.5"
+                  onClick={handleVerify2FA} 
+                  disabled={busy}
+                >
+                  {busy ? "…" : <>Verify <CheckCircle size={14} /></>}
                 </button>
               </div>
             </div>
           )}
 
           {twoFAEnabled && (
-            <div style={{ marginTop: "16px", padding: "16px", background: "#fff5f5", borderRadius: "12px", border: "1px solid #fecaca" }}>
-              <p style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.83rem", color: "#7f1d1d", marginBottom: "10px", fontWeight: 600 }}>
-                <AlertTriangle size={14} /> Danger Zone — Enter your current 2FA code to disable:
+            <div className="mt-6 p-5 bg-red-950/20 border border-red-500/20 rounded-xl space-y-4">
+              <p className="flex items-center gap-2 text-sm text-red-400 font-semibold">
+                <AlertTriangle size={16} /> Danger Zone — Enter your current 2FA code to disable:
               </p>
-              <div style={{ display: "flex", gap: "10px" }}>
+              <div className="flex gap-3">
                 <input
                   type="text" inputMode="numeric" maxLength={6}
                   value={disableCode} onChange={e => setDisableCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="000000"
-                  style={{ ...inputStyle, letterSpacing: "0.25em", textAlign: "center", fontWeight: 700, border: "1.5px solid #fca5a5" }}
+                  className="input-premium tracking-[0.25em] text-center font-bold text-lg max-w-[140px] border-red-500/30 focus:border-red-500/60"
                 />
-                <button style={btnDanger} onClick={handleDisable2FA} disabled={busy}>
+                <button 
+                  className="btn-premium px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-red-700 text-white font-bold cursor-pointer disabled:opacity-50 shadow-[0_4px_12px_rgba(239,68,68,0.25)] hover:shadow-[0_6px_20px_rgba(239,68,68,0.4)]"
+                  onClick={handleDisable2FA} 
+                  disabled={busy}
+                >
                   {busy ? "…" : "Disable"}
                 </button>
               </div>
@@ -307,58 +315,61 @@ export default function SettingsPage() {
         </section>
 
         {/* ── Push Notifications ── */}
-        <section style={sectionStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "6px" }}>
-            <span style={{ fontSize: "1.4rem" }}><Bell size={22} className="text-yellow-500" /></span>
-            <h2 style={{ fontSize: "1.15rem", fontWeight: 800, color: "#0f172a", margin: 0 }}>Push Notifications</h2>
+        <section className="glass-panel border border-primary/20 rounded-2xl p-6 md:p-8 shadow-premium text-white relative overflow-hidden">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="flex-shrink-0"><Bell size={22} className="text-amber-500 drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]" /></span>
+            <h2 className="text-lg font-bold text-white tracking-tight">Push Notifications</h2>
           </div>
-          <p style={{ color: "#64748b", fontSize: "0.85rem", marginBottom: "20px" }}>
+          <p className="text-text-muted text-sm mb-6 leading-relaxed">
             Receive browser notifications for new messages, emergency events, and tasks.
           </p>
-          <button style={btnPrimary} onClick={handleEnablePush}>
+          <button 
+            className="btn-premium px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-blue-600 text-[#020b18] font-bold cursor-pointer shadow-[0_4px_12px_rgba(0,212,255,0.2)] hover:shadow-[0_6px_20px_rgba(0,212,255,0.35)] transition-all"
+            onClick={handleEnablePush}
+          >
             Enable Notification Delivery
           </button>
           {pushStatus && (
-            <p style={{
-              marginTop: "12px", fontSize: "0.83rem", padding: "10px 14px", borderRadius: "10px", display: "flex", alignItems: "center", gap: "6px",
-              background: pushStatus.toLowerCase().includes("enabled") ? "#f0fdf4" : "#fef9c3",
-              color:      pushStatus.toLowerCase().includes("enabled") ? "#166534" : "#92400e",
-              border: `1px solid ${pushStatus.toLowerCase().includes("enabled") ? "#bbf7d0" : "#fde68a"}`,
-            }}>
-              {pushStatus.toLowerCase().includes("enabled") ? <CheckCircle size={14} /> : <AlertTriangle size={14} />} {pushStatus}
+            <p className={`mt-4 p-4 rounded-xl text-sm border flex items-center gap-2 ${
+              pushStatus.toLowerCase().includes("enabled") 
+                ? "bg-emerald-950/30 border-emerald-500/20 text-emerald-300" 
+                : "bg-amber-950/30 border-amber-500/20 text-amber-300"
+            }`}>
+              {pushStatus.toLowerCase().includes("enabled") ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+              <span>{pushStatus}</span>
             </p>
           )}
         </section>
 
         {/* ── Integrations ── */}
-        <section style={sectionStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "6px" }}>
-            <span style={{ fontSize: "1.4rem" }}><LinkIcon size={22} className="text-slate-600" /></span>
-            <h2 style={{ fontSize: "1.15rem", fontWeight: 800, color: "#0f172a", margin: 0 }}>Connected Accounts</h2>
+        <section className="glass-panel border border-primary/20 rounded-2xl p-6 md:p-8 shadow-premium text-white relative overflow-hidden">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="flex-shrink-0"><LinkIcon size={22} className="text-primary drop-shadow-[0_0_8px_rgba(0,212,255,0.4)]" /></span>
+            <h2 className="text-lg font-bold text-white tracking-tight">Connected Accounts</h2>
           </div>
-          <p style={{ color: "#64748b", fontSize: "0.85rem", marginBottom: "20px" }}>
+          <p className="text-text-muted text-sm mb-6 leading-relaxed">
             Connect your Google Workspace or Microsoft 365 accounts to sync your calendars and emails.
           </p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <div className="flex flex-col gap-5">
             {loadingAccounts ? (
-              <p className="text-sm text-text-muted">Loading accounts...</p>
+              <p className="text-sm text-text-muted italic">Loading accounts...</p>
             ) : accounts.length === 0 ? (
               <p className="text-sm text-text-muted italic">No accounts connected yet.</p>
             ) : (
               <div className="space-y-3">
                 {accounts.map(acc => (
-                  <div key={acc.id} className="flex items-center justify-between p-3 border border-zinc-200 rounded-xl bg-zinc-50">
+                  <div key={acc.id} className="flex items-center justify-between p-4 border border-primary/10 rounded-xl bg-[rgba(0,212,255,0.02)] backdrop-blur-sm shadow-[inset_0_1px_0_rgba(0,212,255,0.05)] hover:border-primary/25 transition-all">
                     <div className="flex items-center gap-3">
-                      <div className="px-2 py-1 bg-zinc-200 rounded text-xs font-bold text-zinc-700">
+                      <div className="px-2.5 py-1 bg-[rgba(0,212,255,0.1)] border border-primary/20 rounded text-xs font-bold text-primary tracking-wide">
                         {acc.provider}
                       </div>
-                      <span className="text-sm font-medium text-zinc-900">{acc.email}</span>
+                      <span className="text-sm font-semibold text-white/90">{acc.email}</span>
                     </div>
                     <button 
                       onClick={() => handleDisconnect(acc.id)}
                       disabled={busy}
-                      className="text-xs text-red-600 hover:underline px-2 py-1"
+                      className="text-xs text-red-400 hover:text-red-300 hover:underline transition-colors font-medium px-2 py-1 bg-red-950/20 border border-red-900/30 rounded-lg"
                     >
                       Disconnect
                     </button>
@@ -367,16 +378,16 @@ export default function SettingsPage() {
               </div>
             )}
 
-            <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
+            <div className="flex gap-3 mt-2">
               <button 
-                style={{...btnPrimary, background: "white", color: "#333", border: "1px solid #ccc", boxShadow: "none"}} 
+                className="btn-premium px-4 py-2.5 rounded-xl border border-primary/20 text-[#e2e8f0] bg-[rgba(0,212,255,0.04)] hover:bg-[rgba(0,212,255,0.08)] font-semibold transition hover:translate-y-[-1px] disabled:opacity-50"
                 onClick={() => handleConnectProvider("google")} 
                 disabled={busy}
               >
                 Connect Google
               </button>
               <button 
-                style={{...btnPrimary, background: "white", color: "#333", border: "1px solid #ccc", boxShadow: "none"}} 
+                className="btn-premium px-4 py-2.5 rounded-xl border border-primary/20 text-[#e2e8f0] bg-[rgba(0,212,255,0.04)] hover:bg-[rgba(0,212,255,0.08)] font-semibold transition hover:translate-y-[-1px] disabled:opacity-50"
                 onClick={() => handleConnectProvider("microsoft")} 
                 disabled={busy}
               >
@@ -384,17 +395,21 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            <div style={{ marginTop: "20px", borderTop: "1px solid #e2eaf4", paddingTop: "20px" }}>
-               <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "8px", color: "#0f172a" }}>Notification Mirroring</h3>
-               <p style={{ fontSize: "0.85rem", color: "#64748b", marginBottom: "12px" }}>
+            <div className="mt-4 pt-6 border-t border-primary/10 space-y-3">
+               <h3 className="text-base font-bold text-white tracking-tight">Notification Mirroring</h3>
+               <p className="text-text-muted text-sm leading-relaxed">
                  Forward critical notifications and alerts directly to your connected Google or Microsoft accounts via Email.
                </p>
                <button 
-                  style={{...btnPrimary, background: (user as any)?.externalReminders ? "#166534" : "linear-gradient(135deg, #0ea5e9, #2563eb)", opacity: (busy || accounts.length === 0) ? 0.6 : 1 }}
+                  className={`btn-premium px-5 py-2.5 rounded-xl font-bold transition flex items-center justify-center gap-2 shadow-[0_4px_12px_rgba(0,212,255,0.2)] ${
+                    (user as any)?.externalReminders 
+                      ? "bg-emerald-900 border border-emerald-500/30 text-emerald-200" 
+                      : "bg-gradient-to-r from-primary to-blue-600 text-[#020b18]"
+                  }`}
                   onClick={async () => {
                      if (!token || !user) return;
                      setBusy(true);
-                     const nextState = !(user as any).externalReminders;
+                     const nextState = !((user as any).externalReminders);
                      try {
                         const res = await fetch(`${API_BASE}/users/me/external-reminders`, {
                           method: 'PUT',
@@ -414,7 +429,7 @@ export default function SettingsPage() {
                   {accounts.length === 0 
                      ? "Connect an account to enable" 
                      : (user as any)?.externalReminders 
-                        ? <span className="flex items-center justify-center gap-2"><CheckCircle size={16} /> Mirroring Enabled (Click to Disable)</span> 
+                        ? <><CheckCircle size={16} /> Mirroring Enabled (Disable)</> 
                         : "Enable Notification Mirroring"
                   }
                </button>

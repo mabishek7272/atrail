@@ -5,6 +5,34 @@ import Link from 'next/link';
 import { authedFetch } from '@/lib/authed-fetch';
 import { AlertCircle, Plus, Search, X } from 'lucide-react';
 
+const COUNTRIES = [
+  { name: 'India', code: 'IN', phoneCode: '+91', tax1Label: 'GST Number', tax1Placeholder: '27AAPFU0939F1ZV', tax2Label: 'PAN Number', tax2Placeholder: 'AAPFU0939F' },
+  { name: 'United States', code: 'US', phoneCode: '+1', tax1Label: 'EIN / Tax ID', tax1Placeholder: '12-3456789', tax2Label: 'State Tax ID / SSN', tax2Placeholder: '123-45-6789' },
+  { name: 'United Kingdom', code: 'GB', phoneCode: '+44', tax1Label: 'VAT Number', tax1Placeholder: 'GB123456789', tax2Label: 'Company Registration Number (CRN)', tax2Placeholder: '12345678' },
+  { name: 'Australia', code: 'AU', phoneCode: '+61', tax1Label: 'Australian Business Number (ABN)', tax1Placeholder: '51 824 753 556', tax2Label: 'Australian Company Number (ACN)', tax2Placeholder: '123 456 789' },
+  { name: 'Singapore', code: 'SG', phoneCode: '+65', tax1Label: 'Unique Entity Number (UEN)', tax1Placeholder: '201234567N', tax2Label: 'GST Registration Number', tax2Placeholder: 'M90123456X' },
+  { name: 'Japan', code: 'JP', phoneCode: '+81', tax1Label: 'Corporate Number', tax1Placeholder: '1234567890123', tax2Label: 'Individual Number / My Number', tax2Placeholder: '123456789012' },
+  { name: 'Malaysia', code: 'MY', phoneCode: '+60', tax1Label: 'SST ID', tax1Placeholder: 'W10-1808-32000030', tax2Label: 'Company Registration Number (BRN)', tax2Placeholder: '202001012345' },
+  { name: 'Thailand', code: 'TH', phoneCode: '+66', tax1Label: 'Tax Identification Number (TIN)', tax1Placeholder: '0105556000123', tax2Label: 'VAT ID', tax2Placeholder: '13-digit number' },
+  { name: 'Vietnam', code: 'VN', phoneCode: '+84', tax1Label: 'Enterprise Identification Number (MSDN)', tax1Placeholder: '0102030405', tax2Label: 'Tax Code (Mã số thuế)', tax2Placeholder: '0102030405' },
+  { name: 'Indonesia', code: 'ID', phoneCode: '+62', tax1Label: 'NPWP (Taxpayer Number)', tax1Placeholder: '01.234.567.8-901.000', tax2Label: 'NIB (Single Business Number)', tax2Placeholder: '13-digit number' },
+  { name: 'Philippines', code: 'PH', phoneCode: '+63', tax1Label: 'Tax Identification Number (TIN)', tax1Placeholder: '123-456-789-000', tax2Label: 'SEC Registration Number', tax2Placeholder: 'CS201012345' },
+];
+
+const getCountryConfig = (countryName: string) => {
+  const found = COUNTRIES.find(c => c.name.toLowerCase() === countryName?.toLowerCase());
+  if (found) return found;
+  return {
+    name: countryName || 'Other',
+    code: 'OTHER',
+    phoneCode: '+',
+    tax1Label: 'Business Registry No (BRN)',
+    tax1Placeholder: 'e.g. BRN123456',
+    tax2Label: 'Tax Identification No (TIN)',
+    tax2Placeholder: 'e.g. TIN123456',
+  };
+};
+
 interface Customer {
   id: string;
   name: string;
@@ -38,6 +66,9 @@ export default function CustomersPage() {
   const [form, setForm]           = useState(EMPTY_FORM);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
+
+  const countryConfig = getCountryConfig(form.country);
+  const predefinedCountries = COUNTRIES.map(c => c.name);
 
   const load = () =>
     authedFetch<{ ok: boolean; data: Customer[] }>('/customers')
@@ -206,7 +237,7 @@ export default function CustomersPage() {
                 </div>
                 <div>
                   <label className="block text-gray-400 text-xs uppercase tracking-wide mb-1">Phone</label>
-                  <input type="text" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+91 98765 43210" className={IN} />
+                  <input type="text" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder={countryConfig.phoneCode + " 98765 43210"} className={IN} />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-gray-400 text-xs uppercase tracking-wide mb-1">Address</label>
@@ -218,15 +249,48 @@ export default function CustomersPage() {
                 </div>
                 <div>
                   <label className="block text-gray-400 text-xs uppercase tracking-wide mb-1">Country</label>
-                  <input type="text" value={form.country} onChange={e => set('country', e.target.value)} className={IN} />
+                  <select
+                    value={predefinedCountries.includes(form.country) ? form.country : (form.country ? 'Others...' : '')}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === 'Others...') {
+                        set('country', '');
+                      } else {
+                        set('country', val);
+                        const config = COUNTRIES.find(c => c.name === val);
+                        if (config && (!form.phone || form.phone.trim() === '' || COUNTRIES.some(c => form.phone.startsWith(c.phoneCode)))) {
+                          set('phone', config.phoneCode + ' ');
+                        }
+                      }
+                    }}
+                    className={SEL}
+                  >
+                    <option value="" disabled>Select Country</option>
+                    {COUNTRIES.map(c => (
+                      <option key={c.name} value={c.name} className="bg-[#061628] text-white">{c.name}</option>
+                    ))}
+                    <option value="Others..." className="bg-[#061628] text-white">Others...</option>
+                  </select>
+                  {(!predefinedCountries.includes(form.country) || form.country === '') && (
+                    <div className="mt-2">
+                      <input
+                        type="text"
+                        value={form.country}
+                        onChange={e => set('country', e.target.value)}
+                        placeholder="Enter Country Name"
+                        className={IN}
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs uppercase tracking-wide mb-1">GST Number</label>
-                  <input type="text" value={form.gstNumber} onChange={e => set('gstNumber', e.target.value)} placeholder="27AAPFU0939F1ZV" className={IN} />
+                  <label className="block text-gray-400 text-xs uppercase tracking-wide mb-1">{countryConfig.tax1Label}</label>
+                  <input type="text" value={form.gstNumber} onChange={e => set('gstNumber', e.target.value)} placeholder={countryConfig.tax1Placeholder} className={IN} />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs uppercase tracking-wide mb-1">PAN Number</label>
-                  <input type="text" value={form.panNumber} onChange={e => set('panNumber', e.target.value)} placeholder="AAPFU0939F" className={IN} />
+                  <label className="block text-gray-400 text-xs uppercase tracking-wide mb-1">{countryConfig.tax2Label}</label>
+                  <input type="text" value={form.panNumber} onChange={e => set('panNumber', e.target.value)} placeholder={countryConfig.tax2Placeholder} className={IN} />
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
@@ -246,3 +310,4 @@ export default function CustomersPage() {
 }
 
 const IN = 'w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500';
+const SEL = 'w-full px-3 py-2 bg-[rgba(6,22,40,0.9)] border border-white/10 rounded-lg text-gray-200 text-sm focus:outline-none focus:border-blue-500';

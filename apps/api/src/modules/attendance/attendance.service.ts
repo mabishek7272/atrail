@@ -157,8 +157,8 @@ export const attendanceService = {
       to?: string;
     }
   ) {
-    // Only ADMIN and SUPER_ADMIN can access
-    if (viewerRole !== "ADMIN" && viewerRole !== "SUPER_ADMIN") {
+    // Only ADMIN and RESELLER_SUPER_ADMIN can access
+    if (viewerRole !== "ADMIN" && viewerRole !== "RESELLER_SUPER_ADMIN") {
       throw new ApiError(403, "Only admins can view attendance dashboard");
     }
 

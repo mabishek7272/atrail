@@ -258,7 +258,8 @@ export default function Home() {
         return;
       }
       const user = res.user!;
-      if (user.role === "SUPER_ADMIN") router.push("/dashboard/super");
+      if (user.role === "GOD" || user.role === "DEVELOPER") router.push("/dashboard/god");
+      else if (user.role === "RESELLER_SUPER_ADMIN") router.push("/dashboard/reseller");
       else if (user.role === "ADMIN") router.push("/dashboard/admin");
       else if (user.role === "ELITE") router.push("/dashboard/elite");
       else router.push("/dashboard/user");

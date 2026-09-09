@@ -84,7 +84,7 @@ export default function AttendancePage() {
         setToday(t.today);
         setHistory(h.history ?? []);
       } else {
-        // ADMIN/SUPER_ADMIN: load dashboard
+        // ADMIN/RESELLER_SUPER_ADMIN: load dashboard
         await loadDashboard();
       }
     } catch (e: any) {

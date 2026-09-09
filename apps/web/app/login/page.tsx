@@ -9,11 +9,13 @@ import { AlertTriangle } from "lucide-react";
 import { API_BASE, API_HOST } from "../../lib/config";
 
 const ROLE_REDIRECT: Record<string, string> = {
-  SUPER_ADMIN: "/dashboard/super",
+  GOD: "/dashboard/god",
+  DEVELOPER: "/dashboard/god",
+  RESELLER_SUPER_ADMIN: "/dashboard/reseller",
   ADMIN: "/dashboard/admin",
   ELITE: "/dashboard/elite",
-  TENANT: "/dashboard/tenant",
   USER: "/dashboard/user",
+  INTERN: "/dashboard/user",
 };
 
 function useParticles(count = 55) {
@@ -145,7 +147,7 @@ export default function LoginPage() {
         profileData.ok &&
         !profileData.isComplete &&
         user.role !== 'ADMIN' &&
-        user.role !== 'SUPER_ADMIN';
+        user.role !== 'RESELLER_SUPER_ADMIN';
       if (needsProfile) {
         router.replace('/profile');
       } else {
@@ -176,7 +178,7 @@ export default function LoginPage() {
         profileData.ok &&
         !profileData.isComplete &&
         user.role !== 'ADMIN' &&
-        user.role !== 'SUPER_ADMIN';
+        user.role !== 'RESELLER_SUPER_ADMIN';
       if (needsProfile) {
         router.replace('/profile');
       } else {

@@ -3,7 +3,7 @@ import { google } from "googleapis";
 import { ConfidentialClientApplication } from "@azure/msal-node";
 import { ApiError } from "../../utils/errors.js";
 import { authService } from "./auth.service.js";
-import { refreshCookieOptions, accessCookieOptions } from "../../utils/jwt.js";
+import { refreshCookieOptions, accessCookieOptions, signAccessToken } from "../../utils/jwt.js";
 import { redis } from "../../redis.js";
 import { prisma } from "../../db.js";
 import crypto from "crypto";
@@ -117,16 +117,18 @@ export const authController = {
       const token = req.cookies?.refreshToken;
       if (!token) throw new ApiError(401, "Missing refresh token");
 
-      const { accessToken, refreshToken } = await authService.refresh(token, {
+      // Accept an optional orgId to preserve org-switch context across reloads
+      const desiredOrgId: string | undefined = req.body?.orgId;
+
+      const { accessToken, refreshToken, user } = await authService.refresh(token, {
         ip: req.ip,
         userAgent: req.headers["user-agent"],
+        desiredOrgId,
       });
 
-      // set rotated refresh token
       res.cookie("refreshToken", refreshToken, refreshCookieOptions());
       res.cookie("accessToken", accessToken, accessCookieOptions());
-
-      res.json({ ok: true, accessToken });
+      res.json({ ok: true, accessToken, user });
     } catch (e) {
       next(e);
     }
@@ -166,16 +168,31 @@ export const authController = {
           role: true,
           organizationId: true,
           totpSecret: { select: { verified: true } },
+          accessibleOrgs: {
+            select: {
+              organizationId: true,
+              organization: { select: { id: true, name: true } }
+            }
+          }
         },
       });
 
       if (!dbUser) throw new ApiError(404, "User not found");
+
+      // Use orgId from the JWT token (not DB) — this preserves org-switch context
+      const activeOrgId = user.orgId || dbUser.organizationId;
+      const activeOrg = await prisma.organization.findUnique({
+        where: { id: activeOrgId },
+        select: { id: true, name: true },
+      });
 
       const { totpSecret, ...rest } = dbUser;
       res.json({
         ok: true,
         user: {
           ...rest,
+          organizationId: activeOrgId,
+          organization: activeOrg || { id: activeOrgId, name: "Organization" },
           twoFactorEnabled: totpSecret?.verified === true,
         },
       });
@@ -415,6 +432,62 @@ export const authController = {
           organizationId: user.organizationId,
           twoFactorEnabled: user.totpSecret?.verified === true,
         },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async switchOrg(req: Request, res: Response, next: NextFunction) {
+    try {
+      const u = (req as any).user;
+      const { orgId } = req.body;
+      if (!orgId) throw new ApiError(400, "Missing orgId");
+
+      const user = await prisma.user.findUnique({
+        where: { id: u.id },
+        include: {
+          organization: { select: { id: true, name: true } },
+          accessibleOrgs: {
+            include: { organization: true }
+          }
+        }
+      });
+      if (!user) throw new ApiError(404, "User not found");
+
+      const isDeveloperOrGod = user.role === "GOD" || user.role === "DEVELOPER";
+      const hasAccess = isDeveloperOrGod || user.organizationId === orgId || user.accessibleOrgs.some(ao => ao.organizationId === orgId);
+
+      if (!hasAccess) {
+        throw new ApiError(403, "You do not have access to this organization");
+      }
+
+      // Fetch the target org name (GOD may not have it in accessibleOrgs)
+      const targetOrg = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { id: true, name: true },
+      });
+      if (!targetOrg) throw new ApiError(404, "Organization not found");
+
+      const accessToken = signAccessToken({
+        sub: user.id,
+        orgId: orgId,
+        role: user.role,
+      });
+
+      res.cookie("accessToken", accessToken, accessCookieOptions());
+      res.json({
+        ok: true,
+        accessToken,
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role,
+          organizationId: orgId,
+          organization: targetOrg,
+          accessibleOrgs: user.accessibleOrgs,
+        }
       });
     } catch (e) {
       next(e);

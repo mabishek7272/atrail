@@ -5,7 +5,8 @@ export const createTaskSchema = z.object({
   title: z.string().min(2).max(120),
   description: z.string().max(4000).optional(),
   assignedToId: z.string().min(1),
-  dueAt: z.string().datetime().optional(), // ISO string
+  priority: z.string().optional(),
+  dueAt: z.string().optional(), // Allow flexible date string from UI
 });
 
 export const setMyTaskStatusSchema = z.object({

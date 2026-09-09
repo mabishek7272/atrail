@@ -2,6 +2,20 @@ import { Request, Response } from "express";
 import { renewalService } from "./service.js";
 import { RenewalStatus, ChurnRiskLevel, PaymentStatus } from "../../prisma-client.js";
 
+async function verifyOrgAccess(req: Request, res: Response, id: string): Promise<boolean> {
+  const u = (req as any).user;
+  const renewal = await renewalService.getRenewal(id);
+  if (!renewal) {
+    res.status(404).json({ ok: false, message: "Renewal not found" });
+    return false;
+  }
+  if (!["GOD", "DEVELOPER"].includes(u?.role) && renewal.organizationId !== u?.orgId) {
+    res.status(404).json({ ok: false, message: "Renewal not found" });
+    return false;
+  }
+  return true;
+}
+
 export class RenewalController {
   // ─────────────────────────────────────────────────────────────────────────────
   // CRUD Endpoints
@@ -155,6 +169,8 @@ export class RenewalController {
   async enrichRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const renewal = await renewalService.enrichRenewal(id);
 
       res.json({ ok: true, data: renewal, stage: "ENRICH" });
@@ -166,6 +182,8 @@ export class RenewalController {
   async scoreRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const renewal = await renewalService.scoreRenewal(id);
 
       res.json({ ok: true, data: renewal, stage: "SCORE" });
@@ -177,6 +195,8 @@ export class RenewalController {
   async scheduleRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const renewal = await renewalService.scheduleRenewal(id);
 
       res.json({ ok: true, data: renewal, stage: "SCHEDULE" });
@@ -188,6 +208,8 @@ export class RenewalController {
   async engageRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const { channel } = req.body;
 
       const renewal = await renewalService.engageRenewal(id, channel || "email");
@@ -201,6 +223,8 @@ export class RenewalController {
   async quoteRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const { items, discount } = req.body;
 
       const renewal = await renewalService.quoteRenewal(id, { items, discount });
@@ -214,6 +238,8 @@ export class RenewalController {
   async negotiateRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const { discountRequested, feedback } = req.body;
 
       const renewal = await renewalService.negotiateRenewal(id, {
@@ -230,6 +256,8 @@ export class RenewalController {
   async closeRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const { paymentAmount, eSignatureId, poRef } = req.body;
 
       if (!paymentAmount) {
@@ -251,6 +279,8 @@ export class RenewalController {
   async provisionRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const { vendorRefId, provisionedDate } = req.body;
 
       const renewal = await renewalService.provisionRenewal(id, {
@@ -267,6 +297,8 @@ export class RenewalController {
   async reconcileRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const { invoiceRef, commissionAmount } = req.body;
 
       const renewal = await renewalService.reconcileRenewal(id, {
@@ -283,6 +315,8 @@ export class RenewalController {
   async reflectRenewal(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
+
       const { npsScore, customerFeedback } = req.body;
 
       const renewal = await renewalService.reflectRenewal(id, {
@@ -340,6 +374,7 @@ export class RenewalController {
   async autoProcess(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(await verifyOrgAccess(req, res, id))) return;
 
       const renewal = await renewalService.autoProcessRenewal(id);
 

@@ -22,14 +22,14 @@ export default function AnalyticsPage() {
   const [attendance, setAttendance] = useState<any[]>([]);
 
   useEffect(() => {
-    if (!token || !["ADMIN", "SUPER_ADMIN"].includes(user?.role || "")) return;
+    if (!token || !["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "")) return;
 
     getAnalyticsOverview(token).then(res => res.ok && setOverview(res.overview));
     getTaskStats(token).then(res => res.ok && setTaskStats(res.stats));
     getAttendanceStats(token).then(res => res.ok && setAttendance(res.summary));
   }, [user, token]);
 
-  if (!["ADMIN", "SUPER_ADMIN"].includes(user?.role || "")) {
+  if (!["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "")) {
     return (
       <AppShell title="Analytics" subtitle="Insights">
         <div className="mt-8 text-center text-text-muted">Access Restricted</div>

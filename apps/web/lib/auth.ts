@@ -1,7 +1,7 @@
 import { apiFetch } from "./api";
 import { useAuthStore } from "./auth-store";
 
-type Role = "SUPER_ADMIN" | "ADMIN" | "ELITE" | "USER";
+type Role = "GOD" | "DEVELOPER" | "RESELLER_SUPER_ADMIN" | "ADMIN" | "ELITE" | "USER" | "INTERN";
 
 // Mutex to prevent concurrent refresh attempts
 let refreshPromise: Promise<string> | null = null;
@@ -48,14 +48,20 @@ export async function refreshAccessToken(): Promise<string> {
 
   refreshPromise = (async () => {
     try {
-      const result = await apiFetch<{ ok: true; accessToken: string }>(
+      const store = useAuthStore.getState();
+      // Pass the currently active orgId so a switched org context is preserved
+      const currentOrgId = store.user?.organizationId;
+      const result = await apiFetch<{ ok: true; accessToken: string; user?: any }>(
         "/auth/refresh",
         {
           method: "POST",
+          body: currentOrgId ? JSON.stringify({ orgId: currentOrgId }) : undefined,
+          headers: { "Content-Type": "application/json" },
         }
       );
-      const store = useAuthStore.getState();
-      store.setAuth(result.accessToken, store.user);
+      // Use the updated user from refresh response if available, otherwise use stored user
+      const updatedUser = result.user || store.user;
+      store.setAuth(result.accessToken, updatedUser);
       return result.accessToken;
     } finally {
       // Clear the promise after completion (success or failure)

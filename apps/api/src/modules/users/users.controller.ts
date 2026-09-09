@@ -1,11 +1,27 @@
 import type { Request, Response, NextFunction } from "express";
 import { usersService } from "./users.service.js";
+import { prisma } from "../../db.js";
 
 export const usersController = {
   async createUser(req: Request, res: Response, next: NextFunction) {
     try {
       const u = (req as any).user;
-      const user = await usersService.createUser(req.body, u.orgId);
+      const targetOrgId = (u.role === "RESELLER_SUPER_ADMIN" || u.role === "GOD" || u.role === "DEVELOPER") && req.body.organizationId
+        ? req.body.organizationId
+        : u.orgId;
+
+      if (u.role === "RESELLER_SUPER_ADMIN") {
+        const reseller = await prisma.reseller.findUnique({ where: { ownerId: u.id } });
+        if (!reseller) return res.status(403).json({ ok: false, message: "No reseller context found for this account" });
+        const targetOrg = await prisma.organization.findFirst({
+          where: { id: targetOrgId, resellerId: reseller.id }
+        });
+        if (!targetOrg) {
+          return res.status(403).json({ ok: false, message: "Forbidden: Organization does not belong to your reseller" });
+        }
+      }
+
+      const user = await usersService.createUser(req.body, targetOrgId, u.role);
       res.status(201).json({ ok: true, user });
     } catch (e) {
       next(e);
@@ -24,7 +40,12 @@ export const usersController = {
   async listAll(req: Request, res: Response, next: NextFunction) {
     try {
       const u = (req as any).user;
-      const users = await usersService.listAll(u.orgId);
+      let targetOrgId = u.orgId;
+      if ((u.role === "RESELLER_SUPER_ADMIN" || u.role === "GOD" || u.role === "DEVELOPER") && req.query.orgId) {
+        targetOrgId = req.query.orgId as string;
+      }
+      const allOrgs = (u.role === "RESELLER_SUPER_ADMIN" || u.role === "GOD" || u.role === "DEVELOPER") && req.query.all === "true";
+      const users = await usersService.listAll(u.id, u.role, targetOrgId, allOrgs);
       res.json({ ok: true, users });
     } catch (e) {
       next(e);
@@ -142,6 +163,28 @@ export const usersController = {
       const u = (req as any).user;
       const managers = await usersService.listManagers(u.id, u.orgId);
       res.json({ ok: true, managers });
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async updateUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const u = (req as any).user;
+      const { userId } = req.params;
+      const result = await usersService.updateUser(u.id, u.role, userId, req.body, u.orgId);
+      res.json({ ok: true, user: result, message: "User updated successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  async deleteUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const u = (req as any).user;
+      const { userId } = req.params;
+      await usersService.deleteUser(u.id, u.role, u.orgId, userId);
+      res.json({ ok: true, message: "User deleted successfully" });
     } catch (e) {
       next(e);
     }

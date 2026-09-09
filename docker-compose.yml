@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: amgi
     ports:
-      - "5435:5432"
+      - "127.0.0.1:5435:5432"
     volumes:
       - amgi_pgdata:/var/lib/postgresql/data
 
@@ -15,7 +15,7 @@ services:
     image: redis:7-alpine
     container_name: amgi_redis
     ports:
-      - "6378:6379"
+      - "127.0.0.1:6378:6379"
     volumes:
       - amgi_redisdata:/data
 

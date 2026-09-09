@@ -26,6 +26,6 @@ emergencyRouter.get("/conversation/:conversationId", emergencyController.getByCo
 // SuperAdmin resolve
 emergencyRouter.post(
   "/:id/resolve",
-  requireRole("SUPER_ADMIN"),
+  requireRole("RESELLER_SUPER_ADMIN"),
   emergencyController.resolve
 );

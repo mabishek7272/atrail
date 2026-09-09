@@ -326,7 +326,7 @@ assetsRouter.get("/categories", async (req, res, next) => {
   }
 });
 
-assetsRouter.post("/categories", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/categories", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const { name, subCategoryNames } = req.body;
@@ -372,7 +372,7 @@ assetsRouter.get("/branches", async (req, res, next) => {
   }
 });
 
-assetsRouter.post("/branches", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/branches", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const { name, location } = req.body;
@@ -401,7 +401,7 @@ assetsRouter.get("/departments", async (req, res, next) => {
   }
 });
 
-assetsRouter.post("/departments", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/departments", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const { name, branchId } = req.body;
@@ -419,17 +419,52 @@ assetsRouter.post("/departments", requireRole("ADMIN", "SUPER_ADMIN"), async (re
 assetsRouter.get("/vendors", async (req, res, next) => {
   try {
     const u = (req as any).user;
-    const vendors = await prisma.vendor.findMany({
+    let vendors = await prisma.vendor.findMany({
       where: { organizationId: u.orgId },
       orderBy: { name: "asc" }
     });
+
+    if (vendors.length < 5) {
+      const defaults = [
+        "Apple Inc.",
+        "Dell Technologies",
+        "Figma Inc.",
+        "JetBrains s.r.o.",
+        "Microsoft Corp.",
+        "Amazon Web Services (AWS)",
+        "Google Cloud Platform",
+        "Adobe Inc.",
+        "GitHub Inc.",
+        "Salesforce Inc.",
+        "Slack Technologies",
+        "Zoom Video Communications"
+      ];
+
+      const existingNames = new Set(vendors.map(v => v.name.toLowerCase()));
+      const toCreate = defaults.filter(d => !existingNames.has(d.toLowerCase()));
+
+      if (toCreate.length > 0) {
+        await prisma.vendor.createMany({
+          data: toCreate.map(name => ({
+            organizationId: u.orgId,
+            name
+          }))
+        });
+
+        vendors = await prisma.vendor.findMany({
+          where: { organizationId: u.orgId },
+          orderBy: { name: "asc" }
+        });
+      }
+    }
+
     res.json({ ok: true, vendors });
   } catch (e) {
     next(e);
   }
 });
 
-assetsRouter.post("/vendors", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/vendors", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const { name, contactPerson, email, phone, address } = req.body;
@@ -447,7 +482,7 @@ assetsRouter.post("/vendors", requireRole("ADMIN", "SUPER_ADMIN"), async (req, r
 // ─────────────────────────────────────────────
 // ASSET CRUD ENDPOINTS
 // ─────────────────────────────────────────────
-assetsRouter.post("/", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const orgId = u.orgId;
@@ -595,7 +630,7 @@ assetsRouter.post("/", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, nex
   }
 });
 
-assetsRouter.patch("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.patch("/:id", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const assetId = req.params.id;
@@ -670,7 +705,7 @@ assetsRouter.patch("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res,
   }
 });
 
-assetsRouter.delete("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.delete("/:id", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const assetId = req.params.id;
@@ -694,7 +729,7 @@ assetsRouter.delete("/:id", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res
 // ─────────────────────────────────────────────
 // ALLOCATION / RETURN ENDPOINTS
 // ─────────────────────────────────────────────
-assetsRouter.post("/:id/allocate", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/:id/allocate", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const assetId = req.params.id;
@@ -735,7 +770,7 @@ assetsRouter.post("/:id/allocate", requireRole("ADMIN", "SUPER_ADMIN"), async (r
   }
 });
 
-assetsRouter.post("/:id/return", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/:id/return", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const assetId = req.params.id;
@@ -779,7 +814,7 @@ assetsRouter.post("/:id/return", requireRole("ADMIN", "SUPER_ADMIN"), async (req
 // ─────────────────────────────────────────────
 // MAINTENANCE ENDPOINTS
 // ─────────────────────────────────────────────
-assetsRouter.post("/:id/maintenance", requireRole("ADMIN", "SUPER_ADMIN"), async (req, res, next) => {
+assetsRouter.post("/:id/maintenance", requireRole("ADMIN", "RESELLER_SUPER_ADMIN"), async (req, res, next) => {
   try {
     const u = (req as any).user;
     const assetId = req.params.id;

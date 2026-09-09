@@ -4,11 +4,21 @@ import { canMessage } from "@amgi/shared";
 import { UserStatus, Role, Gender } from "../../prisma-client.js";
 import bcrypt from "bcryptjs";
 import { hrService } from "../hr/hr.service.js";
+import { sendEmailToUser, sendEmailTo, welcomeEmailHtml } from "../notifications/email.js";
+import { sendTelegramNotification } from "../telegram/notify.js";
+import { canAssignRole } from "../../middlewares/rbac.js";
 
 export const usersService = {
-  async createUser(data: any, orgId: string) {
+  async createUser(data: any, orgId: string, actorRole: string) {
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new ApiError(400, "User with this email already exists");
+
+    const validRoles = Object.values(Role);
+    if (!validRoles.includes(data.role as any)) throw new ApiError(400, "Invalid role specified");
+
+    if (!canAssignRole(actorRole, data.role)) {
+      throw new ApiError(403, `Your role (${actorRole}) cannot assign the role: ${data.role}`);
+    }
 
     const passwordHash = await bcrypt.hash(data.password, 12);
     const user = await prisma.user.create({
@@ -28,6 +38,17 @@ export const usersService = {
 
     await hrService.allocateDefaultLeaveBalances(user.id);
 
+    sendEmailTo(
+      data.email,
+      `Your Atrail account is ready`,
+      welcomeEmailHtml({
+        name: data.fullName,
+        orgName: data.companyName || "your organization",
+        loginEmail: data.email,
+        tempPassword: data.password,
+      })
+    ).catch(console.error);
+
     return user;
   },
 
@@ -42,27 +63,8 @@ export const usersService = {
     const validRoles = Object.values(Role);
     if (!validRoles.includes(newRole as any)) throw new ApiError(400, "Invalid role specified");
 
-    // Enforce Hierarchy for role changes
-    if (actorRole === "SUPER_ADMIN") {
-      // Super Admin can change any role
-    } else if (actorRole === "ADMIN") {
-      // Admin can only manage ELITE, USER, INTERN
-      if (target.role === "SUPER_ADMIN" || target.role === "ADMIN" || target.role === "TENANT") {
-        throw new ApiError(403, "Admins cannot change roles of Super Admins, Admins, or Tenants");
-      }
-      if (newRole === "SUPER_ADMIN" || newRole === "ADMIN" || newRole === "TENANT") {
-        throw new ApiError(403, "Admins can only assign ELITE, USER, or INTERN roles");
-      }
-    } else if (actorRole === "ELITE") {
-      // Elite can only manage USER, INTERN
-      if (target.role !== "USER" && target.role !== "INTERN") {
-        throw new ApiError(403, "Elites can only change roles of Users and Interns");
-      }
-      if (newRole !== "USER" && newRole !== "INTERN") {
-        throw new ApiError(403, "Elites can only assign USER or INTERN roles");
-      }
-    } else {
-      throw new ApiError(403, "You do not have permission to change roles");
+    if (!canAssignRole(actorRole, newRole)) {
+      throw new ApiError(403, `Your role (${actorRole}) cannot assign the role: ${newRole}`);
     }
 
     return prisma.user.update({
@@ -91,15 +93,40 @@ export const usersService = {
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
   },
 
-  async listAll(orgId: string) {
+  async listAll(actorId: string, actorRole: string, orgId: string, allOrgs: boolean = false) {
+    const isPlatformOwner = actorRole === "GOD" || actorRole === "DEVELOPER";
+    let where: any = { isActive: true };
+
+    if (isPlatformOwner) {
+      if (!allOrgs) {
+        where.organizationId = orgId;
+      }
+    } else if (actorRole === "RESELLER_SUPER_ADMIN") {
+      const reseller = await prisma.reseller.findUnique({ where: { ownerId: actorId } });
+      if (!reseller) return [];
+
+      if (allOrgs) {
+        where.organization = { resellerId: reseller.id };
+      } else {
+        const org = await prisma.organization.findFirst({
+          where: { id: orgId, resellerId: reseller.id }
+        });
+        if (!org) throw new ApiError(403, "Forbidden: Organization does not belong to your reseller");
+        where.organizationId = orgId;
+      }
+    } else {
+      where.organizationId = orgId;
+    }
+
     return prisma.user.findMany({
-      where: { organizationId: orgId, isActive: true },
+      where,
       select: {
         id: true,
         fullName: true,
         email: true,
         role: true,
         createdAt: true,
+        organizationId: true,
       },
       orderBy: { createdAt: "desc" },
     });
@@ -133,7 +160,7 @@ export const usersService = {
       throw new ApiError(400, "Invalid role specified");
 
     // Strictly enforce Role assignment Hierarchy
-    if (actorRole === "SUPER_ADMIN") {
+    if (actorRole === "RESELLER_SUPER_ADMIN") {
       // Can assign anything
     } else if (actorRole === "ADMIN") {
       if (role !== "ELITE" && role !== "USER") {
@@ -157,6 +184,31 @@ export const usersService = {
     });
 
     await hrService.allocateDefaultLeaveBalances(userUpdate.id);
+
+    // Welcome email + Telegram on approval
+    const firstName = userUpdate.fullName?.split(" ")[0] || "there";
+    sendEmailToUser(
+      userUpdate.id,
+      "🎉 Welcome to Atrail — Your account is approved!",
+      `
+      <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#020b18;color:#e2e8f0;border-radius:12px">
+        <h2 style="color:#00d4ff;margin-bottom:8px">🎉 Welcome to Atrail, ${firstName}!</h2>
+        <p style="color:#94a3b8">Your account has been approved and is now active.</p>
+        <table style="width:100%;margin:20px 0;border-collapse:collapse">
+          <tr><td style="color:#64748b;padding:6px 0">Role</td><td style="color:#e2e8f0;font-weight:bold">${userUpdate.role}</td></tr>
+          <tr><td style="color:#64748b;padding:6px 0">Email</td><td style="color:#e2e8f0">${userUpdate.email}</td></tr>
+        </table>
+        <a href="https://atrail.in/login" style="display:inline-block;padding:12px 28px;background:#00d4ff;color:#020b18;font-weight:bold;border-radius:8px;text-decoration:none;margin-top:8px">Login to Atrail →</a>
+        <hr style="border-color:#1e3a5f;margin:24px 0"/>
+        <p style="color:#374151;font-size:12px">Atrail Enterprise Platform · atrail.in</p>
+      </div>
+      `
+    ).catch(console.error);
+
+    sendTelegramNotification(
+      userUpdate.id,
+      `🎉 *Welcome to Atrail, ${firstName}!*\n\nYour account has been approved.\n\n• Role: ${userUpdate.role}\n• Email: ${userUpdate.email}\n\nLogin at atrail.in and complete your profile setup.`
+    ).catch(console.error);
 
     return userUpdate;
   },
@@ -185,6 +237,12 @@ export const usersService = {
         },
         reportsTo: {
           select: { id: true, fullName: true, role: true }
+        },
+        accessibleOrgs: {
+          select: {
+            organizationId: true,
+            organization: { select: { id: true, name: true } }
+          }
         }
       },
       orderBy: [{ role: "asc" }, { fullName: "asc" }]
@@ -213,10 +271,12 @@ export const usersService = {
     if (!target || target.organizationId !== orgId) throw new ApiError(404, "Target user not found");
     if (!reportsTo || reportsTo.organizationId !== orgId) throw new ApiError(404, "Reporting user not found");
 
-    if (actor.role === "SUPER_ADMIN") {
+    if (actor.role === "RESELLER_SUPER_ADMIN") {
       // Super Admin can do anything
     } else if (actor.role === "ADMIN") {
-      if (target.role !== "ELITE") throw new ApiError(403, "Admins can only assign Elites");
+      if (target.role !== "ELITE" && target.role !== "USER" && target.role !== "INTERN") {
+        throw new ApiError(403, "Admins can only assign Elites, Users, or Interns");
+      }
     } else if (actor.role === "ELITE") {
       if (target.role !== "USER" && target.role !== "INTERN") throw new ApiError(403, "Elites can only assign Interns or Users");
     } else {
@@ -265,7 +325,7 @@ export const usersService = {
       user.companyName &&
       user.profile?.department &&
       user.skills.length > 0 &&
-      (["SUPER_ADMIN", "ADMIN", "TENANT"].includes(user.role) || user.reportsToId)
+      (["GOD", "DEVELOPER", "RESELLER_SUPER_ADMIN", "ADMIN", "USER"].includes(user.role) || user.reportsToId)
     );
 
     return {
@@ -278,7 +338,7 @@ export const usersService = {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new ApiError(404, "User not found");
 
-    const { fullName, gender, dob, companyName, department, reportsToId, skills, phone } = data;
+    const { fullName, gender, dob, companyName, department, reportsToId, skills, phone, personalEmail } = data;
 
     // Update main User fields (excluding role/email/status for security)
     await prisma.user.update({
@@ -295,14 +355,16 @@ export const usersService = {
     // Update Profile (department / team name, gender)
     await prisma.userProfile.upsert({
       where: { userId },
-      update: { 
-        department: department || undefined,
-        gender: gender as Gender || undefined
+      update: {
+        department:    department    || undefined,
+        gender:        gender as Gender || undefined,
+        personalEmail: personalEmail || undefined,
       },
-      create: { 
-        userId, 
-        department: department || "",
-        gender: gender as Gender || "PREFER_NOT_TO_SAY"
+      create: {
+        userId,
+        department:    department    || "",
+        gender:        gender as Gender || "PREFER_NOT_TO_SAY",
+        personalEmail: personalEmail || undefined,
       }
     });
 
@@ -337,9 +399,9 @@ export const usersService = {
 
     let allowedRoles: Role[] = [];
     if (user.role === "USER" || user.role === "INTERN") {
-      allowedRoles = ["ELITE", "ADMIN", "SUPER_ADMIN"];
+      allowedRoles = ["ELITE", "ADMIN", "RESELLER_SUPER_ADMIN"];
     } else if (user.role === "ELITE") {
-      allowedRoles = ["ADMIN", "SUPER_ADMIN"];
+      allowedRoles = ["ADMIN", "RESELLER_SUPER_ADMIN"];
     } else {
       allowedRoles = []; // Admins/Super Admins don't select a manager
     }
@@ -358,6 +420,163 @@ export const usersService = {
         email: true
       },
       orderBy: { fullName: "asc" }
+    });
+  },
+
+  async updateUser(
+    actorId: string,
+    actorRole: string,
+    targetUserId: string,
+    data: {
+      fullName?: string;
+      email?: string;
+      password?: string;
+      role?: string;
+      organizationId?: string;
+      accessibleOrgIds?: string[];
+    },
+    orgId: string
+  ) {
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      include: { accessibleOrgs: true, organization: true }
+    });
+    if (!target) throw new ApiError(404, "User not found");
+
+    const isPlatformOwner = actorRole === "GOD" || actorRole === "DEVELOPER";
+
+    if (!isPlatformOwner) {
+      if (actorRole === "RESELLER_SUPER_ADMIN") {
+        const reseller = await prisma.reseller.findUnique({ where: { ownerId: actorId } });
+        if (!reseller || target.organization.resellerId !== reseller.id) {
+          throw new ApiError(403, "Forbidden: Cannot edit user from another reseller's tenant");
+        }
+      } else if (actorRole === "ADMIN") {
+        if (target.organizationId !== orgId) {
+          throw new ApiError(403, "Forbidden: User is in another organization");
+        }
+      } else {
+        throw new ApiError(403, "Forbidden: Insufficient permissions to edit users");
+      }
+    }
+
+    if (data.role && data.role !== target.role) {
+      const validRoles = Object.values(Role);
+      if (!validRoles.includes(data.role as any)) throw new ApiError(400, "Invalid role specified");
+
+      if (isPlatformOwner) {
+        // Platform owners can set any role
+      } else if (actorRole === "RESELLER_SUPER_ADMIN") {
+        if (data.role === "GOD" || data.role === "DEVELOPER") {
+          throw new ApiError(403, "Resellers cannot assign Platform Owner roles");
+        }
+      } else if (actorRole === "ADMIN") {
+        if (target.role === "RESELLER_SUPER_ADMIN" || target.role === "ADMIN") {
+          throw new ApiError(403, "Admins cannot change roles of Reseller Admins or other Admins");
+        }
+        if (data.role === "RESELLER_SUPER_ADMIN" || data.role === "ADMIN" || data.role === "GOD" || data.role === "DEVELOPER") {
+          throw new ApiError(403, "Admins can only assign ELITE, USER, or INTERN roles");
+        }
+      } else if (actorRole === "ELITE") {
+        if (target.role !== "USER" && target.role !== "INTERN") {
+          throw new ApiError(403, "Elites can only change roles of Users and Interns");
+        }
+        if (data.role !== "USER" && data.role !== "INTERN") {
+          throw new ApiError(403, "Elites can only assign USER or INTERN roles");
+        }
+      } else {
+        throw new ApiError(403, "Insufficient permissions to change roles");
+      }
+    }
+
+    const updateData: any = {};
+    if (data.fullName !== undefined) updateData.fullName = data.fullName;
+    if (data.email !== undefined) {
+      if (data.email !== target.email) {
+        const existing = await prisma.user.findUnique({ where: { email: data.email } });
+        if (existing) throw new ApiError(400, "Email already registered to another user");
+      }
+      updateData.email = data.email;
+    }
+    if (data.password) {
+      updateData.passwordHash = await bcrypt.hash(data.password, 12);
+    }
+    if (data.role !== undefined) updateData.role = data.role as Role;
+    
+    if (data.organizationId !== undefined) {
+      if (data.organizationId !== target.organizationId) {
+        const destOrg = await prisma.organization.findUnique({ where: { id: data.organizationId } });
+        if (!destOrg) throw new ApiError(404, "Destination organization not found");
+      }
+      updateData.organizationId = data.organizationId;
+    }
+
+    const updatedUser = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: targetUserId },
+        data: updateData,
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          role: true,
+          organizationId: true,
+        }
+      });
+
+      if (data.accessibleOrgIds !== undefined) {
+        await tx.userOrganization.deleteMany({
+          where: { userId: targetUserId }
+        });
+
+        if (data.accessibleOrgIds.length > 0) {
+          await tx.userOrganization.createMany({
+            data: data.accessibleOrgIds.map(orgId => ({
+              userId: targetUserId,
+              organizationId: orgId
+            }))
+          });
+        }
+      }
+
+      return user;
+    });
+
+    return updatedUser;
+  },
+
+  async deleteUser(actorId: string, actorRole: string, actorOrgId: string, targetUserId: string) {
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      include: { organization: true },
+    });
+    
+    if (!target) throw new ApiError(404, "User not found");
+    
+    const isPlatformOwner = actorRole === "GOD" || actorRole === "DEVELOPER";
+    
+    if (!isPlatformOwner) {
+      if (actorRole === "RESELLER_SUPER_ADMIN") {
+        const reseller = await prisma.reseller.findUnique({ where: { ownerId: actorId } });
+        if (!reseller || target.organization.resellerId !== reseller.id) {
+          throw new ApiError(403, "Forbidden: Cannot delete user from another reseller's tenant");
+        }
+      } else if (actorRole === "ADMIN") {
+        if (target.organizationId !== actorOrgId) {
+          throw new ApiError(403, "Forbidden: Cannot delete user from another organization");
+        }
+      } else {
+        throw new ApiError(403, "Forbidden: Insufficient permissions to delete users");
+      }
+    }
+
+    // Soft delete to preserve chat history and project integrity
+    return prisma.user.update({
+      where: { id: targetUserId },
+      data: {
+        isActive: false,
+        status: "REJECTED"
+      },
     });
   }
 };

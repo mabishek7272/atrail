@@ -18,15 +18,31 @@ interface TelegramStatus {
 }
 
 const ROLE_REDIRECT: Record<string, string> = {
-  GOD: "/developer",
-  DEVELOPER: "/developer",
-  SUPER_ADMIN: "/dashboard/super",
+  GOD: "/dashboard/god",
+  DEVELOPER: "/dashboard/god",
+  RESELLER_SUPER_ADMIN: "/dashboard/reseller",
   ADMIN: "/dashboard/admin",
   ELITE: "/dashboard/elite",
-  TENANT: "/dashboard/tenant",
   USER: "/dashboard/user",
   INTERN: "/dashboard/user",
 };
+
+const COUNTRY_CODES = [
+  { code: "+91", country: "India", flag: "🇮🇳" },
+  { code: "+1", country: "USA / Canada", flag: "🇺🇸" },
+  { code: "+44", country: "United Kingdom", flag: "🇬🇧" },
+  { code: "+61", country: "Australia", flag: "🇦🇺" },
+  { code: "+65", country: "Singapore", flag: "🇸🇬" },
+  { code: "+81", country: "Japan", flag: "🇯🇵" },
+  { code: "+60", country: "Malaysia", flag: "🇲🇾" },
+  { code: "+66", country: "Thailand", flag: "🇹🇭" },
+  { code: "+84", country: "Vietnam", flag: "🇻🇳" },
+  { code: "+62", country: "Indonesia", flag: "🇮🇩" },
+  { code: "+63", country: "Philippines", flag: "🇵🇭" },
+  { code: "+971", country: "UAE", flag: "🇦🇪" },
+  { code: "+49", country: "Germany", flag: "🇩🇪" },
+  { code: "+33", country: "France", flag: "🇫🇷" },
+];
 
 const STEP_LABELS = ["Personal", "Work", "Telegram", "Done"];
 
@@ -42,11 +58,16 @@ export default function ProfileSetupPage() {
   const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string }[]>([]);
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null);
   const [telegramPolling, setTelegramPolling] = useState(false);
+  const [chatIdInput, setChatIdInput] = useState("");
+  const [linkingId, setLinkingId] = useState(false);
+  const [linkMsg, setLinkMsg] = useState("");
+  const [phonePrefix, setPhonePrefix] = useState("+91");
 
   // Form state
   const [form, setForm] = useState({
     fullName: "",
     phone: "",
+    personalEmail: "",
     gender: "PREFER_NOT_TO_SAY",
     dob: "",
     companyName: "",
@@ -73,16 +94,33 @@ export default function ProfileSetupPage() {
 
         const profile = await profileRes.json();
         if (profile.ok) {
-          if (profile.isComplete && profile.data?.telegramLinked) {
+          if (profile.isComplete) {
             router.replace(ROLE_REDIRECT[user.role] ?? "/dashboard");
             return;
           }
           const u = profile.user ?? profile.data;
           if (u) {
+            let localPhone = u.phone ?? "";
+            let detectedPrefix = "+91";
+            if (localPhone.startsWith("+")) {
+              const sortedCodes = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length);
+              const matched = sortedCodes.find(c => localPhone.startsWith(c.code));
+              if (matched) {
+                detectedPrefix = matched.code;
+                localPhone = localPhone.slice(matched.code.length).trim();
+              } else {
+                const match = localPhone.match(/^\+(\d+)\s*(.*)$/);
+                if (match) {
+                  detectedPrefix = `+${match[1]}`;
+                  localPhone = match[2];
+                }
+              }
+            }
+            setPhonePrefix(detectedPrefix);
             setForm(f => ({
               ...f,
               fullName: u.fullName ?? "",
-              phone: u.phone ?? "",
+              phone: localPhone,
               gender: u.gender ?? u.profile?.gender ?? "PREFER_NOT_TO_SAY",
               dob: u.dob ? new Date(u.dob).toISOString().split("T")[0] : "",
               companyName: u.companyName ?? "",
@@ -106,6 +144,28 @@ export default function ProfileSetupPage() {
     };
     load();
   }, [accessToken, user, router]);
+
+  // ── Link by Chat ID ──────────────────────────────────────────────────────
+  const linkByChatId = async () => {
+    if (!chatIdInput.trim()) return;
+    setLinkingId(true); setLinkMsg("");
+    try {
+      const r = await fetch(`${API_BASE}/users/me/telegram-link`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ telegramChatId: chatIdInput.trim() }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        setLinkMsg("✅ Linked! Check Telegram for your welcome message.");
+        setChatIdInput("");
+        setTelegramStatus(prev => prev ? { ...prev, linked: true } : prev);
+      } else {
+        setLinkMsg(`❌ ${data.message}`);
+      }
+    } catch { setLinkMsg("❌ Failed to link. Please try again."); }
+    finally { setLinkingId(false); }
+  };
 
   // ── Poll Telegram status after user clicks the link ─────────────────────
   useEffect(() => {
@@ -134,7 +194,8 @@ export default function ProfileSetupPage() {
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           fullName: form.fullName,
-          phone: form.phone,
+          phone: form.phone.trim() ? `${phonePrefix} ${form.phone.trim()}` : "",
+          personalEmail: form.personalEmail || undefined,
           gender: form.gender,
           dob: form.dob,
           companyName: form.companyName,
@@ -239,17 +300,40 @@ export default function ProfileSetupPage() {
                 />
               </Field>
 
+              <Field label="Personal Email" hint="Your real inbox for notifications (Gmail, Yahoo etc.)">
+                <input
+                  type="email"
+                  value={form.personalEmail}
+                  onChange={e => set("personalEmail", e.target.value)}
+                  placeholder="yourname@gmail.com"
+                  className={IN}
+                />
+              </Field>
+
               <Field label="Phone Number *" hint="Used for WhatsApp renewal reminders">
                 <div className="flex gap-2">
-                  <span className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-400 text-sm flex items-center gap-1">
-                    <Phone className="w-3.5 h-3.5" /> +91
-                  </span>
+                  <select
+                    value={phonePrefix}
+                    onChange={e => setPhonePrefix(e.target.value)}
+                    className="px-2 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-200 text-sm focus:outline-none focus:border-blue-500"
+                  >
+                    {COUNTRY_CODES.map(c => (
+                      <option key={c.code} value={c.code} className="bg-[#061628] text-white">
+                        {c.flag} {c.code} ({c.country})
+                      </option>
+                    ))}
+                    {!COUNTRY_CODES.some(c => c.code === phonePrefix) && (
+                      <option value={phonePrefix} className="bg-[#061628] text-white">
+                        {phonePrefix}
+                      </option>
+                    )}
+                  </select>
                   <input
                     type="tel"
                     value={form.phone}
                     onChange={e => set("phone", e.target.value.replace(/\D/g, ""))}
-                    placeholder="98765 43210"
-                    maxLength={10}
+                    placeholder="Phone number"
+                    maxLength={15}
                     className={`${IN} flex-1`}
                   />
                 </div>
@@ -363,14 +447,34 @@ export default function ProfileSetupPage() {
                   </p>
 
                   <div className="bg-[rgba(0,212,255,0.04)] border border-[rgba(0,212,255,0.1)] rounded-xl p-4 space-y-3">
-                    <p className="text-white text-sm font-semibold">How to link:</p>
+                    <p className="text-white text-sm font-semibold">How to link in 3 steps:</p>
                     <ol className="space-y-2 text-sm text-gray-300">
-                      <li className="flex gap-2"><span className="text-blue-400 font-bold flex-shrink-0">1.</span> Open Telegram and search for <code className="bg-white/10 px-1.5 py-0.5 rounded text-blue-300">@{telegramStatus?.botName ?? "AtrailBot"}</code></li>
-                      <li className="flex gap-2"><span className="text-blue-400 font-bold flex-shrink-0">2.</span> Send <code className="bg-white/10 px-1.5 py-0.5 rounded text-blue-300">/start</code> to the bot</li>
-                      <li className="flex gap-2"><span className="text-blue-400 font-bold flex-shrink-0">3.</span> Enter your login email <code className="bg-white/10 px-1.5 py-0.5 rounded text-blue-300">{user?.email}</code> when prompted</li>
-                      <li className="flex gap-2"><span className="text-blue-400 font-bold flex-shrink-0">4.</span> Enter your TOTP code to verify</li>
+                      <li className="flex gap-2"><span className="text-blue-400 font-bold flex-shrink-0">1.</span> Open <code className="bg-white/10 px-1.5 py-0.5 rounded text-blue-300">@{telegramStatus?.botName ?? "AtrailBot"}</code> on Telegram and send <code className="bg-white/10 px-1.5 py-0.5 rounded text-blue-300">/start</code></li>
+                      <li className="flex gap-2"><span className="text-blue-400 font-bold flex-shrink-0">2.</span> The bot will show your <strong className="text-white">Chat ID</strong> — copy that number</li>
+                      <li className="flex gap-2"><span className="text-blue-400 font-bold flex-shrink-0">3.</span> Paste the Chat ID below and click <strong className="text-white">Link</strong></li>
                     </ol>
                   </div>
+
+                  {/* Chat ID input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chatIdInput}
+                      onChange={e => setChatIdInput(e.target.value.replace(/\D/g, ""))}
+                      placeholder="Paste your Chat ID here (e.g. 7588031325)"
+                      className={`${IN} flex-1`}
+                      onKeyDown={e => e.key === "Enter" && linkByChatId()}
+                    />
+                    <button
+                      onClick={linkByChatId}
+                      disabled={linkingId || !chatIdInput.trim()}
+                      className="px-4 py-2 bg-[#0088cc] hover:bg-[#0077b3] text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {linkingId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      Link
+                    </button>
+                  </div>
+                  {linkMsg && <p className={`text-xs ${linkMsg.startsWith("✅") ? "text-green-400" : "text-red-400"}`}>{linkMsg}</p>}
 
                   <a
                     href={telegramStatus?.linkUrl ?? `https://t.me/AtrailBot`}
@@ -414,7 +518,7 @@ export default function ProfileSetupPage() {
               </p>
               <div className="grid grid-cols-2 gap-3 pt-2 text-left">
                 <InfoBadge icon={<User className="w-3.5 h-3.5" />} label="Name" value={form.fullName} />
-                <InfoBadge icon={<Phone className="w-3.5 h-3.5" />} label="Phone" value={form.phone ? `+91 ${form.phone}` : "—"} />
+                <InfoBadge icon={<Phone className="w-3.5 h-3.5" />} label="Phone" value={form.phone ? `${phonePrefix} ${form.phone}` : "—"} />
                 <InfoBadge icon={<Mail className="w-3.5 h-3.5" />} label="Email" value={user?.email ?? "—"} />
                 <InfoBadge
                   icon={<MessageCircle className="w-3.5 h-3.5" />}

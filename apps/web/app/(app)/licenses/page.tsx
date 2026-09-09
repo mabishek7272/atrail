@@ -75,7 +75,7 @@ type Vendor = { id: string; name: string };
 
 export default function LicensesPage() {
   const { user } = useAuthStore();
-  const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const isAdmin = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "");
 
   const [licenses, setLicenses] = useState<License[]>([]);
   const [users, setUsers] = useState<DirectoryUser[]>([]);

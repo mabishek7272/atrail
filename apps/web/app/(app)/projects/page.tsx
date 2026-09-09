@@ -30,7 +30,7 @@ type UserLite = { id: string; fullName: string; email: string; role: string };
 
 export default function ProjectsPage() {
   const { user } = useAuthStore();
-  const isAdminPlus = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const isAdminPlus = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN","ADMIN"].includes(user?.role ?? "");
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -57,10 +57,13 @@ export default function ProjectsPage() {
       setProjects(p.projects ?? []);
 
       if (isAdminPlus) {
-        const u = await authedFetch<{ ok: true; users: UserLite[] }>("/users");
-        setElites((u.users ?? []).filter((x) => x.role === "ELITE"));
+        const fetchUrl = ["GOD","DEVELOPER","RESELLER_SUPER_ADMIN"].includes(user?.role ?? "") ? "/users?all=true" : "/users";
+        const u = await authedFetch<{ ok: true; users: UserLite[] }>(fetchUrl);
+        // Show ELITE + USER + INTERN so admin can assign them as project heads
+        setElites((u.users ?? []).filter((x) => ["ELITE", "USER", "INTERN"].includes(x.role)));
 
-        if (user?.role === "SUPER_ADMIN") {
+        // Load orgs for GOD/DEVELOPER/RESELLER
+        if (["GOD","DEVELOPER","RESELLER_SUPER_ADMIN"].includes(user?.role ?? "")) {
           const orgsRes = await authedFetch<{ ok: true; organizations: {id: string, name: string}[] }>("/organizations");
           setOrganizations(orgsRes.organizations ?? []);
         }
@@ -74,7 +77,7 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [user?.organizationId, user?.role]);
 
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -85,6 +88,12 @@ export default function ProjectsPage() {
           new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
       );
   }, [projects, q]);
+
+  const openCreateModal = () => {
+    // When opening create modal, default targetOrgId to current active org
+    setTargetOrgId(user?.organizationId || "");
+    setCreateOpen(true);
+  };
 
   const createProject = async () => {
     if (!isAdminPlus) return;
@@ -99,7 +108,7 @@ export default function ProjectsPage() {
           name: name.trim(),
           description: desc.trim() ? desc.trim() : undefined,
           headId: headId || undefined,
-          ...(user?.role === "SUPER_ADMIN" && targetOrgId ? { organizationId: targetOrgId } : {})
+          ...(["GOD","DEVELOPER","RESELLER_SUPER_ADMIN"].includes(user?.role ?? "") && targetOrgId ? { organizationId: targetOrgId } : {})
         }),
       });
       setCreateOpen(false);
@@ -125,7 +134,7 @@ export default function ProjectsPage() {
             Refresh
           </Button>
           {isAdminPlus && (
-            <Button onClick={() => setCreateOpen(true)}>New Project</Button>
+            <Button onClick={openCreateModal}>New Project</Button>
           )}
         </div>
       }
@@ -172,7 +181,7 @@ export default function ProjectsPage() {
                 <div>
                   <div className="text-lg font-semibold text-primary flex gap-2 items-center">
                     {p.name}
-                    {user?.role === "SUPER_ADMIN" && p.organization && (
+                    {["GOD","DEVELOPER","RESELLER_SUPER_ADMIN"].includes(user?.role ?? "") && p.organization && (
                       <Badge tone="blue">{p.organization.name}</Badge>
                     )}
                   </div>
@@ -253,26 +262,39 @@ export default function ProjectsPage() {
             onChange={(e) => setHeadId(e.target.value)}
             className="w-full rounded-xl border border-primary/20 glass-panel px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
           >
-            <option value="">Head (optional) — Elite</option>
-            {elites.filter(e => !targetOrgId || (e as any).organizationId === targetOrgId || user?.role !== "SUPER_ADMIN").map((e) => (
+            <option value="">👤 Project Head (optional — assigns ELITE role)</option>
+            {elites.filter(e => !targetOrgId || (e as any).organizationId === targetOrgId || !["GOD","DEVELOPER","RESELLER_SUPER_ADMIN"].includes(user?.role ?? "")).map((e) => (
               <option key={e.id} value={e.id}>
                 {e.fullName} • {e.email}
               </option>
             ))}
           </select>
 
-          {user?.role === "SUPER_ADMIN" && (
+          {["GOD","DEVELOPER","RESELLER_SUPER_ADMIN"].includes(user?.role ?? "") && (
             <select
               value={targetOrgId}
               onChange={(e) => setTargetOrgId(e.target.value)}
               className="w-full rounded-xl border border-primary/20 glass-panel px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
             >
-              <option value="">Select Tenant (Current Admin's Tenant)</option>
-              {organizations.map((org) => (
-                <option key={org.id} value={org.id}>
-                  {org.name}
-                </option>
-              ))}
+              {user?.role === "GOD" || user?.role === "DEVELOPER" ? (
+                <>
+                  <option value="">📊 Overall (All Organizations)</option>
+                  {organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name}
+                    </option>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <option value="">📍 Current Organization</option>
+                  {organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name}
+                    </option>
+                  ))}
+                </>
+              )}
             </select>
           )}
         </div>

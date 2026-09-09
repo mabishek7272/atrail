@@ -21,7 +21,7 @@ type ChatPermission = {
 
 export default function ChatInboxPage() {
   const { user } = useAuthStore();
-  const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "RESELLER_SUPER_ADMIN";
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);

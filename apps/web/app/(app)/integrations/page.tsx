@@ -181,6 +181,9 @@ export default function IntegrationsPage() {
   const [showNewLinear, setShowNewLinear] = useState(false);
 
   const [telegramLink, setTelegramLink] = useState<{ id: string; telegramUsername: string | null; isActive: boolean } | null>(null);
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const [telegramLinking, setTelegramLinking] = useState(false);
+  const [telegramMsg, setTelegramMsg] = useState("");
 
   /* OAuth busy */
   const [oauthBusy, setOauthBusy]   = useState<string | null>(null);
@@ -254,13 +257,40 @@ export default function IntegrationsPage() {
     if (!confirm("Disconnect this account?")) return;
     setDisconnBusy(id);
     try {
-      await authedFetch(`/integrations/${id}`, { method: "DELETE" });
-      await loadAccounts();
-      if (id !== "telegram") {
+      if (id === "telegram") {
+        await authedFetch(`/users/me/telegram-link`, { method: "DELETE" });
+        setTelegramLink(null);
+      } else {
+        await authedFetch(`/integrations/${id}`, { method: "DELETE" });
         setJiraIssues([]); setLinearIssues([]);
       }
+      await loadAccounts();
     } catch (e: any) { alert(e.message); }
     finally { setDisconnBusy(null); }
+  };
+
+  /* ── Link Telegram by Chat ID ── */
+  const linkTelegram = async () => {
+    if (!telegramChatId.trim()) return;
+    setTelegramLinking(true);
+    setTelegramMsg("");
+    try {
+      const r = await authedFetch<{ ok: boolean; message: string }>("/users/me/telegram-link", {
+        method: "POST",
+        body: JSON.stringify({ telegramChatId: telegramChatId.trim() }),
+      });
+      if (r.ok) {
+        setTelegramMsg("✅ Linked! Check Telegram for your welcome message.");
+        setTelegramChatId("");
+        await loadAccounts();
+      } else {
+        setTelegramMsg(`❌ ${r.message}`);
+      }
+    } catch (e: any) {
+      setTelegramMsg(`❌ ${e.message}`);
+    } finally {
+      setTelegramLinking(false);
+    }
   };
 
   /* ── Jira connect ── */
@@ -758,47 +788,78 @@ export default function IntegrationsPage() {
         <IntCard icon={<Send size={20} />} name="Telegram Bot (@AtrailBot)" description="Notifications & Security Actions via Telegram" accent="#0088cc">
           <div className="flex items-center justify-between mb-4">
             <StatusPill connected={!!telegramLink?.isActive} />
-            {telegramLink?.isActive ? (
+            {telegramLink?.isActive && (
               <button
                 onClick={() => disconnect("telegram")}
                 disabled={disconnBusy === "telegram"}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/10 transition-all"
                 style={{ border: "1px solid rgba(239,68,68,0.2)" }}
               >
-                {disconnBusy === "telegram"
-                  ? <Loader2 size={11} className="animate-spin" />
-                  : <Trash2 size={11} />
-                } Disconnect
+                {disconnBusy === "telegram" ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                Disconnect
               </button>
-            ) : (
-              <a
-                href="https://t.me/AtrailBot"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all hover:-translate-y-0.5"
-                style={{ background: "linear-gradient(135deg,#0088cc,#006699)", color: "#fff", boxShadow: "0 4px 16px rgba(0,136,204,0.3)" }}
-              >
-                <ExternalLink size={12} />
-                Open Bot
-              </a>
             )}
           </div>
-          {telegramLink?.isActive && (
+
+          {telegramLink?.isActive ? (
             <div className="text-xs text-[#64748b] font-medium px-1 space-y-2">
-              <div>
-                <span className="text-[#94a3b8]">@{telegramLink.telegramUsername || "Linked Account"}</span>
-                <span className="mx-2 text-[#374151]">·</span>
-                Active and listening
+              <div className="flex items-center gap-2">
+                <span className="text-green-400">✅</span>
+                <span className="text-[#94a3b8]">
+                  {telegramLink.telegramUsername ? `@${telegramLink.telegramUsername}` : "Linked"} · Active and listening
+                </span>
               </div>
               <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 text-amber-300/80 leading-relaxed">
-                💡 <strong>Password Change:</strong> If you want to change your password, open the Telegram bot and type <code className="text-white bg-white/10 px-1 rounded">password change</code>. The bot will guide you through verification and invalidate web sessions.
+                💡 To change your password, open the bot and type <code className="text-white bg-white/10 px-1 rounded">password change</code>.
               </div>
             </div>
-          )}
-          {!telegramLink?.isActive && (
-            <p className="text-xs text-[#374151] leading-relaxed">
-              Open <a href="https://t.me/AtrailBot" target="_blank" rel="noopener noreferrer" className="text-[#0088cc] hover:underline">@AtrailBot</a> in Telegram, send <code className="text-[#e2e8f0] bg-white/5 px-1 rounded">/start</code>, and follow the instructions to link your account.
-            </p>
+          ) : (
+            <div className="space-y-3">
+              {/* Step instructions */}
+              <div className="p-3 rounded-xl text-xs space-y-2" style={{ background: "rgba(0,136,204,0.06)", border: "1px solid rgba(0,136,204,0.15)" }}>
+                <p className="text-[#94a3b8] font-semibold mb-1">How to link:</p>
+                <p className="text-[#64748b]">
+                  <span className="text-[#0088cc] font-bold">1.</span> Open{" "}
+                  <a href="https://t.me/AtrailBot" target="_blank" rel="noopener noreferrer" className="text-[#0088cc] hover:underline">@AtrailBot</a>{" "}
+                  on Telegram
+                </p>
+                <p className="text-[#64748b]">
+                  <span className="text-[#0088cc] font-bold">2.</span> Send the command{" "}
+                  <code className="text-[#e2e8f0] bg-white/10 px-1.5 py-0.5 rounded">/getid</code>
+                </p>
+                <p className="text-[#64748b]">
+                  <span className="text-[#0088cc] font-bold">3.</span> Copy the ID the bot sends you and paste it below
+                </p>
+              </div>
+
+              {/* ID input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={telegramChatId}
+                  onChange={e => setTelegramChatId(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Paste your Telegram Chat ID here"
+                  className="flex-1 px-3 py-2 rounded-xl text-xs text-white placeholder-[#374151] focus:outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                  onKeyDown={e => e.key === "Enter" && linkTelegram()}
+                />
+                <button
+                  onClick={linkTelegram}
+                  disabled={telegramLinking || !telegramChatId.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all hover:-translate-y-0.5 disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg,#0088cc,#006699)", color: "#fff", boxShadow: "0 4px 16px rgba(0,136,204,0.3)" }}
+                >
+                  {telegramLinking ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                  Link
+                </button>
+              </div>
+
+              {telegramMsg && (
+                <p className={`text-xs px-1 ${telegramMsg.startsWith("✅") ? "text-green-400" : "text-red-400"}`}>
+                  {telegramMsg}
+                </p>
+              )}
+            </div>
           )}
         </IntCard>
       </div>

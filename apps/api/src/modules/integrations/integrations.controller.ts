@@ -2,6 +2,64 @@ import { Request, Response } from "express";
 import { integrationsService } from "./integrations.service.js";
 import { jiraService, linearService } from "./jira-linear.service.js";
 import { prisma } from "../../db.js";
+import { sendEmailTo, sendEmailToUser } from "../notifications/email.js";
+import { sendTelegramNotification } from "../telegram/notify.js";
+
+async function sendIntegrationWelcome(userId: string, provider: "Google" | "Microsoft") {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { fullName: true, email: true },
+  });
+  if (!user) return;
+
+  // Get the real connected email from the ConnectedAccount record
+  const account = await prisma.connectedAccount.findFirst({
+    where: { userId, provider: provider.toLowerCase() },
+    select: { email: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const realEmail = account?.email || user.email;
+  const name = user.fullName?.split(" ")[0] || "there";
+  const icon = provider === "Google" ? "🔵" : "🔷";
+
+  // Auto-save as personalEmail so future notifications also go here
+  if (account?.email) {
+    await prisma.userProfile.upsert({
+      where: { userId },
+      update: { personalEmail: account.email },
+      create: { userId, personalEmail: account.email },
+    }).catch(console.error);
+  }
+
+  // Send to the REAL connected email (e.g. yourname@gmail.com)
+  sendEmailTo(
+    realEmail,
+    `${icon} ${provider} account connected — Atrail`,
+    `
+    <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#020b18;color:#e2e8f0;border-radius:12px">
+      <h2 style="color:#00d4ff;margin-bottom:8px">${icon} ${provider} Connected!</h2>
+      <p style="color:#94a3b8">Hi ${name},</p>
+      <p>Your <strong>${provider}</strong> account (<strong>${realEmail}</strong>) has been successfully connected to <strong>Atrail</strong>.</p>
+      <p style="color:#94a3b8;margin-top:16px">You can now:</p>
+      <ul style="color:#94a3b8;line-height:2">
+        ${provider === "Google"
+          ? "<li>Sync Google Calendar events</li><li>Access Gmail threads</li><li>Use Google Drive for documents</li>"
+          : "<li>Sync Outlook Calendar events</li><li>Access Microsoft 365 emails</li>"}
+      </ul>
+      <p style="margin-top:24px;color:#64748b;font-size:13px">⚠️ If you did not do this, contact support immediately at <a href="mailto:support@atrail.in" style="color:#00d4ff">support@atrail.in</a></p>
+      <hr style="border-color:#1e3a5f;margin:24px 0"/>
+      <p style="color:#374151;font-size:12px">Atrail Enterprise Platform · <a href="https://atrail.in" style="color:#374151">atrail.in</a></p>
+    </div>
+    `
+  ).catch(console.error);
+
+  // Telegram notification
+  sendTelegramNotification(
+    userId,
+    `${icon} *${provider} Connected*\n\nHi ${name}! Your ${provider} account (${realEmail}) is now linked to Atrail.\n\nAll future notifications will also be sent to this email.`
+  ).catch(console.error);
+}
 
 export const integrationsController = {
   async list(req: Request, res: Response) {
@@ -64,6 +122,7 @@ export const integrationsController = {
       }
 
       await integrationsService.handleGoogleCallback(userId, code);
+      sendIntegrationWelcome(userId, "Google").catch(console.error);
       res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?connected=google`);
     } catch (e: any) {
       console.error('Google OAuth callback error:', e.message);
@@ -97,6 +156,7 @@ export const integrationsController = {
       }
 
       await integrationsService.handleMicrosoftCallback(userId, code);
+      sendIntegrationWelcome(userId, "Microsoft").catch(console.error);
       res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?connected=microsoft`);
     } catch (e: any) {
       console.error('Microsoft OAuth callback error:', e.message);

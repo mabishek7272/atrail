@@ -35,7 +35,7 @@ Write a short, motivational 3-sentence summary. Then list 2-3 actionable priorit
     { maxTokens: 250, temperature: 0.7 }
   );
 
-  return `📊 *Weekly Digest — ${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}*\n\n${summary}\n\n📌 *Quick Stats:*\n✅ Completed: ${completedTasks}\n⏳ Pending: ${pendingTasks}\n🔴 Overdue: ${overdueTasks}`;
+  return `📊 <b>Weekly Digest — ${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</b>\n\n${summary.text}\n\n📌 <b>Quick Stats:</b>\n✅ Completed: ${completedTasks}\n⏳ Pending: ${pendingTasks}\n🔴 Overdue: ${overdueTasks}`;
 }
 
 export async function sendWeeklyDigest() {

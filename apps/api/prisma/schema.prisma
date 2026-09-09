@@ -11,9 +11,8 @@ datasource db {
 enum Role {
   GOD
   DEVELOPER
-  SUPER_ADMIN
+  RESELLER_SUPER_ADMIN
   ADMIN
-  TENANT
   ELITE
   USER
   INTERN
@@ -168,6 +167,53 @@ model Milestone {
   @@index([organizationId, dueDate])
 }
 
+model Reseller {
+  id          String   @id @default(cuid())
+  name        String
+  ownerId     String   @unique
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner         User           @relation("ResellerOwner", fields: [ownerId], references: [id])
+  createdBy     User           @relation("ResellerCreatedBy", fields: [createdById], references: [id])
+  organizations Organization[]
+
+  @@index([createdById])
+}
+
+model OrgFeatureFlags {
+  id             String  @id @default(cuid())
+  organizationId String  @unique
+
+  // Module toggles — GOD or RESELLER_SUPER_ADMIN can flip these per org
+  projects     Boolean @default(true)
+  tasks        Boolean @default(true)
+  kanban       Boolean @default(true)
+  calendar     Boolean @default(true)
+  chat         Boolean @default(true)
+  notices      Boolean @default(true)
+  attendance   Boolean @default(true)
+  hr           Boolean @default(true)
+  assets       Boolean @default(true)
+  licenses     Boolean @default(true)
+  finance      Boolean @default(true)
+  renewals     Boolean @default(true)
+  customers    Boolean @default(true)
+  commissions  Boolean @default(true)
+  analytics    Boolean @default(true)
+  emergency    Boolean @default(true)
+  documents    Boolean @default(true)
+  integrations Boolean @default(true)
+  aiAssistant  Boolean @default(true)
+  telegram     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String   @unique
@@ -185,6 +231,10 @@ model Organization {
   billingUpdatedBy  String?       // userId of GOD/DEVELOPER who last touched this
   trialEndsAt       DateTime?
   planName          String?       @default("Starter")
+
+  // Reseller relationship — null means directly owned by platform (GOD)
+  resellerId String?
+  reseller   Reseller? @relation(fields: [resellerId], references: [id])
 
   users         User[]
   projects      Project[]
@@ -215,6 +265,9 @@ model Organization {
   customers         Customer[]
   renewals          Renewal[]
   commissionWallets CommissionWallet[]
+  accessibleUsers   UserOrganization[]
+
+  featureFlags OrgFeatureFlags?
 }
 
 model User {
@@ -256,7 +309,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  accessibleOrgs UserOrganization[]
 
   attendances           Attendance[]
   createdProjects       Project[]       @relation("ProjectCreatedBy")
@@ -324,6 +378,10 @@ model User {
   // Renewal OS: Account Manager Relations
   managedRenewals  Renewal[]        @relation("RenewalAccountManager")
   commissionWallet CommissionWallet?
+
+  // Reseller relations
+  resellerOwned   Reseller? @relation("ResellerOwner")
+  resellerCreated Reseller[] @relation("ResellerCreatedBy")
 
   @@index([organizationId, role])
   @@index([reportsToId])
@@ -737,14 +795,15 @@ model Notification {
 // ─────────────────────────────────────────────
 
 model UserProfile {
-  id         String    @id @default(cuid())
-  userId     String    @unique
-  department String?
-  phone      String?
-  avatarUrl  String?
-  joinDate   DateTime?
-  gender     Gender?   @default(PREFER_NOT_TO_SAY)
-  bio        String?
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  department    String?
+  phone         String?
+  avatarUrl     String?
+  joinDate      DateTime?
+  gender        Gender?   @default(PREFER_NOT_TO_SAY)
+  bio           String?
+  personalEmail String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1582,3 +1641,16 @@ model CommissionEvent {
   @@index([walletId, renewalId])
   @@index([walletId, status])
 }
+
+model UserOrganization {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+}
+

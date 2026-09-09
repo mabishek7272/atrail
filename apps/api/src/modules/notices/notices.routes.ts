@@ -10,14 +10,14 @@ noticesRouter.use(requireAuth);
 noticesRouter.get("/", noticesController.list);
 noticesRouter.post(
   "/",
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("ADMIN", "RESELLER_SUPER_ADMIN"),
   validateBody(createNoticeSchema),
   noticesController.create
 );
 noticesRouter.post("/:id/seen", noticesController.markSeen);
 noticesRouter.patch(
   "/:id/pin",
-  requireRole("ADMIN", "SUPER_ADMIN"),
+  requireRole("ADMIN", "RESELLER_SUPER_ADMIN"),
   validateBody(pinSchema),
   noticesController.pin
 );

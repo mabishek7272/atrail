@@ -16,7 +16,7 @@ export async function sendTelegramNotification(userId: string, message: string):
     if (!link?.isActive) return false;
 
     await botInstance.telegram.sendMessage(link.telegramChatId, message, {
-      parse_mode: "Markdown",
+      parse_mode: "HTML",
     });
     return true;
   } catch (err: any) {

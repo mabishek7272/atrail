@@ -99,6 +99,19 @@ export async function updateOrganization(token: string, orgId: string, data: { n
   }, token);
 }
 
+export async function createOrganization(token: string, data: { name: string; orgType?: string }) {
+  return await apiFetch<{ ok: boolean; organization?: any; message?: string }>("/organizations", {
+    method: "POST",
+    body: JSON.stringify(data)
+  }, token);
+}
+
+export async function deleteUser(token: string, userId: string) {
+  return await apiFetch<{ ok: boolean; message?: string }>(`/users/${userId}`, {
+    method: "DELETE"
+  }, token);
+}
+
 // -- PROJECT ASSIGNMENT --
 export async function assignProjectAdmin(token: string, projectId: string, adminId: string | null) {
   return await apiFetch<{ ok: boolean; project?: any; message?: string }>(`/projects/${projectId}/assign-admin`, {

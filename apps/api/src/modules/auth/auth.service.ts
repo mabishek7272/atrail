@@ -48,7 +48,16 @@ export const authService = {
 
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { totpSecret: { select: { verified: true } } },
+      include: {
+        totpSecret: { select: { verified: true } },
+        organization: { select: { id: true, name: true } },
+        accessibleOrgs: {
+          select: {
+            organizationId: true,
+            organization: { select: { id: true, name: true } }
+          }
+        }
+      },
     });
 
     // Generic error for credential mismatches to avoid email enumeration
@@ -142,7 +151,9 @@ export const authService = {
         role: user.role,
         status: user.status,
         organizationId: user.organizationId,
+        organization: user.organization,
         twoFactorEnabled: !!user.totpSecret?.verified,
+        accessibleOrgs: user.accessibleOrgs,
       },
     };
   },
@@ -211,7 +222,18 @@ export const authService = {
       return { refreshToken: token };
     });
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        organization: { select: { id: true, name: true } },
+        accessibleOrgs: {
+          select: {
+            organizationId: true,
+            organization: { select: { id: true, name: true } }
+          }
+        }
+      }
+    });
 
     return {
       accessToken,
@@ -223,7 +245,9 @@ export const authService = {
         role: user?.role || "",
         status: user?.status || "",
         organizationId: user?.organizationId || "",
+        organization: user?.organization,
         twoFactorEnabled: true,
+        accessibleOrgs: user?.accessibleOrgs || [],
       }
     };
   },
@@ -256,10 +280,29 @@ export const authService = {
       return { refreshToken: token };
     });
 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        accessibleOrgs: {
+          select: {
+            organizationId: true,
+            organization: { select: { id: true, name: true } }
+          }
+        }
+      }
+    });
+
     return {
       accessToken,
       refreshToken,
-      user: { id: userId, email, role, organizationId: orgId }
+      user: {
+        id: userId,
+        fullName: user?.fullName || "",
+        email: email,
+        role: role,
+        organizationId: orgId || "",
+        accessibleOrgs: user?.accessibleOrgs || [],
+      }
     };
   },
 
@@ -307,7 +350,7 @@ export const authService = {
     };
   },
 
-  async refresh(refreshToken: string, meta?: { userAgent?: string; ip?: string }) {
+  async refresh(refreshToken: string, meta?: { userAgent?: string; ip?: string; desiredOrgId?: string }) {
     const payload = verifyRefreshToken(refreshToken);
 
     const session = await prisma.authSession.findUnique({
@@ -360,13 +403,40 @@ export const authService = {
       },
     });
 
+    // Use desiredOrgId if provided and the user has access to it
+    let activeOrgId = session.user.organizationId;
+    if (meta?.desiredOrgId && meta.desiredOrgId !== session.user.organizationId) {
+      const isGodLevel = session.user.role === "GOD" || session.user.role === "DEVELOPER";
+      const orgExists = await prisma.organization.findUnique({ where: { id: meta.desiredOrgId }, select: { id: true } });
+      if (orgExists && (isGodLevel || session.user.organizationId === meta.desiredOrgId)) {
+        activeOrgId = meta.desiredOrgId;
+      }
+    }
+
     const newAccessToken = signAccessToken({
       sub: session.user.id,
-      orgId: session.user.organizationId,
+      orgId: activeOrgId,
       role: session.user.role,
     });
 
-    return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+    // Fetch the organization info for the active org
+    const organization = await prisma.organization.findUnique({
+      where: { id: activeOrgId },
+      select: { id: true, name: true },
+    });
+
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      user: {
+        id: session.user.id,
+        fullName: session.user.fullName,
+        email: session.user.email,
+        role: session.user.role,
+        organizationId: activeOrgId,
+        organization: organization || { id: activeOrgId, name: "Organization" },
+      },
+    };
   },
 
   async logout(refreshToken: string) {
