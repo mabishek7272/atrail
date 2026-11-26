@@ -32,3 +32,18 @@ export const upload = multer({
     }
   },
 });
+
+// Throwaway in-memory upload for small structured-data files (CSV import) — never
+// written to disk, parsed directly from the buffer and discarded.
+export const uploadCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const ok =
+      file.mimetype === "text/csv" ||
+      file.mimetype === "application/vnd.ms-excel" ||
+      file.originalname.toLowerCase().endsWith(".csv");
+    if (ok) cb(null, true);
+    else cb(new Error("Only CSV files allowed") as any, false);
+  },
+});

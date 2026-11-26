@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -11,10 +11,11 @@ import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
 import Skeleton from "@/components/ui/Skeleton";
 import { authedFetch } from "@/lib/authed-fetch";
-import { API_HOST } from "@/lib/config";
+import { API_BASE, API_HOST } from "@/lib/config";
 import { useAuthStore } from "@/lib/auth-store";
 import { toast } from "@/components/ui/toast";
 import { confirm } from "@/components/ui/confirm";
+import GanttChart, { GanttTaskRow } from "@/components/GanttChart";
 
 type Project = {
   id: string;
@@ -106,14 +107,34 @@ export default function ProjectDetailPage({
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
 
-  const [tab, setTab] = useState<"overview" | "members" | "tasks">("overview");
+  const [tab, setTab] = useState<"overview" | "members" | "tasks" | "gantt">("overview");
 
   // Assign task modal
   const [assignOpen, setAssignOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [assignedToId, setAssignedToId] = useState("");
+  const [startAt, setStartAt] = useState("");
   const [dueAt, setDueAt] = useState("");
+
+  // Gantt tab
+  const [ganttTasks, setGanttTasks] = useState<GanttTaskRow[]>([]);
+  const [ganttLoaded, setGanttLoaded] = useState(false);
+  const [ganttLoading, setGanttLoading] = useState(false);
+  const [ganttViewMode, setGanttViewMode] = useState<"Day" | "Week" | "Month">("Week");
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<{
+    created: number;
+    updated: number;
+    rowErrors: { row: number; reason: string }[];
+    dependencyWarnings: { row: number; reason: string }[];
+  } | null>(null);
+
+  // Dependency edit modal
+  const [depModalOpen, setDepModalOpen] = useState(false);
+  const [depModalTaskId, setDepModalTaskId] = useState<string | null>(null);
+  const [depModalSelectedIds, setDepModalSelectedIds] = useState<string[]>([]);
 
   // Review modal
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -305,6 +326,7 @@ export default function ProjectDetailPage({
               title: t,
               description: d ? d : undefined,
               assignedToId: uid,
+              startAt: startAt ? new Date(startAt).toISOString() : undefined,
               dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
             }),
           })
@@ -314,6 +336,7 @@ export default function ProjectDetailPage({
       setAssignOpen(false);
       setTitle("");
       setDesc("");
+      setStartAt("");
       setDueAt("");
       setAssignedToId("");
 
@@ -324,6 +347,136 @@ export default function ProjectDetailPage({
       toast.error(e?.message || "Create task failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const loadGantt = async () => {
+    if (!finalProjectId) return;
+    setGanttLoading(true);
+    try {
+      const res = await authedFetch<{ ok: true; tasks: GanttTaskRow[] }>(
+        `/tasks/project/${finalProjectId}/gantt`
+      );
+      setGanttTasks(res.tasks ?? []);
+      setGanttLoaded(true);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load Gantt data");
+    } finally {
+      setGanttLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === "gantt" && !ganttLoaded && finalProjectId) {
+      loadGantt();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, finalProjectId]);
+
+  const handleGanttDateChange = async (taskId: string, start: Date, end: Date) => {
+    // Optimistic update so the bar doesn't snap back while the request is in flight
+    setGanttTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? { ...t, startAt: start.toISOString(), dueAt: end.toISOString() }
+          : t
+      )
+    );
+    try {
+      await authedFetch(`/tasks/${taskId}/schedule`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          startAt: start.toISOString(),
+          dueAt: end.toISOString(),
+        }),
+      });
+      toast.success("Schedule updated");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update schedule");
+      await loadGantt(); // reconcile with server state
+    }
+  };
+
+  const openDependencyModal = (taskId: string) => {
+    const t = ganttTasks.find((x) => x.id === taskId);
+    if (!t) return;
+    setDepModalTaskId(taskId);
+    setDepModalSelectedIds(t.dependsOnTaskIds);
+    setDepModalOpen(true);
+  };
+
+  const saveDependencies = async () => {
+    if (!depModalTaskId) return;
+    setBusy(true);
+    try {
+      await authedFetch(`/tasks/${depModalTaskId}/dependencies`, {
+        method: "PUT",
+        body: JSON.stringify({ dependsOnTaskIds: depModalSelectedIds }),
+      });
+      toast.success("Dependencies updated");
+      setDepModalOpen(false);
+      setDepModalTaskId(null);
+      await loadGantt();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update dependencies");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    if (!finalProjectId) return;
+    try {
+      const token = useAuthStore.getState().accessToken;
+      const res = await fetch(`${API_BASE}/tasks/project/${finalProjectId}/export`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${project?.name || "project"}-gantt.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error(e?.message || "Export failed");
+    }
+  };
+
+  const handleImportFile = async (file: File) => {
+    if (!finalProjectId) return;
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await authedFetch<{
+        ok: true;
+        created: number;
+        updated: number;
+        rowErrors: { row: number; reason: string }[];
+        dependencyWarnings: { row: number; reason: string }[];
+      }>(`/tasks/project/${finalProjectId}/import`, {
+        method: "POST",
+        body: formData,
+      });
+      setImportSummary({
+        created: res.created,
+        updated: res.updated,
+        rowErrors: res.rowErrors,
+        dependencyWarnings: res.dependencyWarnings,
+      });
+      toast.success(`Imported: ${res.created} created, ${res.updated} updated`);
+      await loadGantt();
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || "Import failed");
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) importInputRef.current.value = "";
     }
   };
 
@@ -709,7 +862,7 @@ export default function ProjectDetailPage({
             />
             <CardContent>
               <div className="flex flex-wrap gap-2">
-                {(["overview", "members", "tasks"] as const).map((t) => (
+                {(["overview", "members", "tasks", "gantt"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setTab(t)}
@@ -1212,6 +1365,79 @@ export default function ProjectDetailPage({
               </CardContent>
             </Card>
           )}
+
+          {tab === "gantt" && (
+            <Card>
+              <CardHeader
+                title="Gantt"
+                subtitle="Drag a bar to reschedule. Double-click a bar to edit its dependencies."
+                right={
+                  <div className="flex items-center gap-2">
+                    {(["Day", "Week", "Month"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setGanttViewMode(m)}
+                        className={
+                          "rounded-lg px-2 py-1 text-xs font-semibold border transition " +
+                          (ganttViewMode === m
+                            ? "bg-primary/20 text-primary border-primary/40"
+                            : "glass-panel text-text-muted border-primary/20 hover:text-text-main")
+                        }
+                      >
+                        {m}
+                      </button>
+                    ))}
+                    <Button
+                      variant="secondary"
+                      className="text-xs px-2 py-1 h-auto"
+                      onClick={handleExportCsv}
+                    >
+                      Export CSV
+                    </Button>
+                    {canAssign && (
+                      <>
+                        <input
+                          ref={importInputRef}
+                          type="file"
+                          accept=".csv,text/csv"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleImportFile(f);
+                          }}
+                        />
+                        <Button
+                          variant="secondary"
+                          className="text-xs px-2 py-1 h-auto"
+                          disabled={importing}
+                          onClick={() => importInputRef.current?.click()}
+                        >
+                          {importing ? "Importing…" : "Import CSV"}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                }
+              />
+              <CardContent>
+                {ganttLoading ? (
+                  <Skeleton className="h-64 w-full" />
+                ) : (
+                  <GanttChart
+                    tasks={ganttTasks}
+                    viewMode={ganttViewMode}
+                    onDateChange={handleGanttDateChange}
+                    onTaskClick={canAssign ? openDependencyModal : undefined}
+                  />
+                )}
+                {!canAssign && (
+                  <div className="text-xs text-text-muted mt-3">
+                    Only project admins/leads can import tasks or edit dependencies.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
@@ -1264,6 +1490,12 @@ export default function ProjectDetailPage({
           </select>
           <Input
             type="datetime-local"
+            value={startAt}
+            onChange={(e) => setStartAt(e.target.value)}
+            placeholder="Start date (optional)"
+          />
+          <Input
+            type="datetime-local"
             value={dueAt}
             onChange={(e) => setDueAt(e.target.value)}
             placeholder="Due date (optional)"
@@ -1273,6 +1505,97 @@ export default function ProjectDetailPage({
             description.
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={depModalOpen}
+        title="Edit Dependencies"
+        subtitle="Select which tasks must finish before this one can start."
+        onClose={() => (!busy ? setDepModalOpen(false) : null)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setDepModalOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={saveDependencies} disabled={busy}>
+              Save
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-2 max-h-80 overflow-y-auto">
+          {ganttTasks
+            .filter((t) => t.id !== depModalTaskId)
+            .map((t) => (
+              <label
+                key={t.id}
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-primary/5 cursor-pointer text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={depModalSelectedIds.includes(t.id)}
+                  onChange={(e) => {
+                    setDepModalSelectedIds((prev) =>
+                      e.target.checked
+                        ? [...prev, t.id]
+                        : prev.filter((id) => id !== t.id)
+                    );
+                  }}
+                />
+                <span className="truncate">{t.title}</span>
+              </label>
+            ))}
+          {ganttTasks.length <= 1 && (
+            <div className="text-xs text-text-muted">No other tasks in this project yet.</div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!importSummary}
+        title="Import Summary"
+        onClose={() => setImportSummary(null)}
+        footer={
+          <div className="flex justify-end">
+            <Button onClick={() => setImportSummary(null)}>Close</Button>
+          </div>
+        }
+      >
+        {importSummary && (
+          <div className="space-y-3 text-sm">
+            <div className="flex gap-4">
+              <Badge tone="green">{importSummary.created} created</Badge>
+              <Badge tone="blue">{importSummary.updated} updated</Badge>
+            </div>
+            {importSummary.rowErrors.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-red-400 mb-1">
+                  Skipped rows ({importSummary.rowErrors.length})
+                </div>
+                <ul className="text-xs text-text-muted space-y-0.5">
+                  {importSummary.rowErrors.map((e, i) => (
+                    <li key={i}>Row {e.row}: {e.reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {importSummary.dependencyWarnings.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-amber-400 mb-1">
+                  Dependency warnings ({importSummary.dependencyWarnings.length})
+                </div>
+                <ul className="text-xs text-text-muted space-y-0.5">
+                  {importSummary.dependencyWarnings.map((e, i) => (
+                    <li key={i}>Row {e.row}: {e.reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {importSummary.rowErrors.length === 0 && importSummary.dependencyWarnings.length === 0 && (
+              <div className="text-xs text-text-muted">No issues.</div>
+            )}
+          </div>
+        )}
       </Modal>
 
       <Modal

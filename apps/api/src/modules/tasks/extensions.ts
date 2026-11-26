@@ -2,6 +2,10 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../../db.js';
 import { requireAuth, requireRole } from '../../middlewares/auth.js';
 import { auditAction } from '../../lib/audit.js';
+import { uploadCsv } from '../../utils/upload.js';
+import { tasksService } from './tasks.service.js';
+import { setScheduleSchema, setDependenciesSchema } from './tasks.schemas.js';
+import { validateBody } from '../../utils/validate.js';
 
 const router = Router();
 
@@ -139,6 +143,57 @@ router.get('/all', requireAuth, requireRole('ADMIN', 'RESELLER_SUPER_ADMIN', 'EL
     orderBy: { createdAt: 'desc' },
   });
   return res.json({ ok: true, tasks });
+});
+
+// GET /tasks/project/:projectId/gantt
+router.get('/project/:projectId/gantt', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const u = (req as any).user;
+    const data = await tasksService.projectGantt(u.id, u.orgId, u.role, req.params.projectId);
+    res.json({ ok: true, ...data });
+  } catch (e) { next(e); }
+});
+
+// PATCH /tasks/:taskId/schedule — drag-resize a Gantt bar
+router.patch('/:taskId/schedule', requireAuth, validateBody(setScheduleSchema), async (req: Request, res: Response, next) => {
+  try {
+    const u = (req as any).user;
+    const task = await tasksService.updateSchedule(u.id, u.orgId, u.role, req.params.taskId, req.body);
+    res.json({ ok: true, task });
+  } catch (e) { next(e); }
+});
+
+// PUT /tasks/:taskId/dependencies — replace a task's full dependency set
+router.put('/:taskId/dependencies', requireAuth, validateBody(setDependenciesSchema), async (req: Request, res: Response, next) => {
+  try {
+    const u = (req as any).user;
+    const result = await tasksService.setDependencies(u.id, u.orgId, u.role, req.params.taskId, req.body.dependsOnTaskIds);
+    res.json({ ok: true, ...result });
+  } catch (e) { next(e); }
+});
+
+// GET /tasks/project/:projectId/export — CSV download
+router.get('/project/:projectId/export', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const u = (req as any).user;
+    const csv = await tasksService.exportProjectCsv(u.id, u.orgId, u.role, req.params.projectId);
+    const project = await prisma.project.findUnique({ where: { id: req.params.projectId }, select: { name: true } });
+    const safeName = (project?.name || 'project').replace(/[^a-z0-9-_]+/gi, '_');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}-gantt.csv"`);
+    res.send(csv);
+  } catch (e) { next(e); }
+});
+
+// POST /tasks/project/:projectId/import — CSV bulk create/update + dependency wiring
+router.post('/project/:projectId/import', requireAuth, uploadCsv.single('file'), async (req: Request, res: Response, next) => {
+  try {
+    const u = (req as any).user;
+    const file = req.file as Express.Multer.File | undefined;
+    if (!file) return res.status(400).json({ ok: false, message: 'CSV file required (field name "file")' });
+    const summary = await tasksService.importProjectCsv(u.id, u.orgId, u.role, req.params.projectId, file.buffer.toString('utf-8'));
+    res.json({ ok: true, ...summary });
+  } catch (e) { next(e); }
 });
 
 export { router as taskExtensionsRouter };

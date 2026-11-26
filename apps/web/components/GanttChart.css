@@ -1,0 +1,153 @@
+/* ─── Dark Gantt Theme (overrides frappe-gantt's default light skin) ───── */
+
+.gantt-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(0, 212, 255, 0.1) !important;
+  border-radius: 16px !important;
+  background: rgba(6, 22, 40, 0.4) !important;
+}
+
+.gantt-empty {
+  padding: 48px;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+  border: 1px solid rgba(0, 212, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(6, 22, 40, 0.4);
+}
+
+.gantt-container {
+  background: transparent !important;
+  font-family: "Inter", "Space Grotesk", sans-serif !important;
+}
+
+.gantt-container::-webkit-scrollbar { height: 6px; width: 6px; }
+.gantt-container::-webkit-scrollbar-track { background: transparent; }
+.gantt-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.2);
+  border-radius: 99px;
+}
+
+/* ── Grid ── */
+.gantt .grid-background {
+  fill: transparent !important;
+}
+.gantt .grid-header {
+  fill: rgba(6, 22, 40, 0.9) !important;
+  stroke: rgba(0, 212, 255, 0.12) !important;
+}
+.gantt .grid-row {
+  fill: rgba(6, 22, 40, 0.4) !important;
+}
+.gantt .grid-row:nth-child(even) {
+  fill: rgba(10, 31, 53, 0.4) !important;
+}
+.gantt .row-line {
+  stroke: rgba(0, 212, 255, 0.06) !important;
+}
+.gantt .tick {
+  stroke: rgba(0, 212, 255, 0.08) !important;
+}
+.gantt .tick.thick {
+  stroke: rgba(0, 212, 255, 0.16) !important;
+}
+.gantt .today-highlight {
+  fill: rgba(0, 212, 255, 0.08) !important;
+  opacity: 1 !important;
+}
+
+/* ── Header text ── */
+.gantt .upper-text {
+  fill: #94a3b8 !important;
+  font-weight: 700 !important;
+}
+.gantt .lower-text {
+  fill: #64748b !important;
+  font-weight: 600 !important;
+}
+
+/* ── Dependency arrows ── */
+.gantt .arrow {
+  stroke: rgba(0, 212, 255, 0.5) !important;
+  stroke-width: 1.6 !important;
+}
+
+/* ── Bars (default / NORMAL priority) ── */
+.gantt .bar {
+  fill: rgba(0, 212, 255, 0.18) !important;
+  stroke: rgba(0, 212, 255, 0.4) !important;
+  stroke-width: 1 !important;
+}
+.gantt .bar-progress {
+  fill: #00d4ff !important;
+}
+.gantt .bar-label {
+  fill: #e2e8f0 !important;
+  font-weight: 600 !important;
+}
+.gantt .bar-label.big {
+  fill: #e2e8f0 !important;
+}
+.gantt .bar-wrapper:hover .bar {
+  fill: rgba(0, 212, 255, 0.28) !important;
+}
+.gantt .bar-wrapper.active .bar {
+  stroke-width: 2 !important;
+}
+.gantt .handle {
+  fill: #00d4ff !important;
+}
+
+/* ── Priority color overrides ── */
+.gantt .bar-wrapper.gantt-priority-urgent .bar {
+  fill: rgba(239, 68, 68, 0.2) !important;
+  stroke: rgba(239, 68, 68, 0.55) !important;
+}
+.gantt .bar-wrapper.gantt-priority-urgent .bar-progress {
+  fill: #ef4444 !important;
+}
+.gantt .bar-wrapper.gantt-priority-high .bar {
+  fill: rgba(245, 158, 11, 0.2) !important;
+  stroke: rgba(245, 158, 11, 0.55) !important;
+}
+.gantt .bar-wrapper.gantt-priority-high .bar-progress {
+  fill: #f59e0b !important;
+}
+.gantt .bar-wrapper.gantt-priority-low .bar {
+  fill: rgba(100, 116, 139, 0.2) !important;
+  stroke: rgba(100, 116, 139, 0.5) !important;
+}
+.gantt .bar-wrapper.gantt-priority-low .bar-progress {
+  fill: #64748b !important;
+}
+
+/* ── Status accents ── */
+.gantt .bar-wrapper.gantt-status-accepted .bar-progress {
+  fill: #10b981 !important;
+}
+.gantt .bar-wrapper.gantt-status-rejected .bar {
+  stroke-dasharray: 4 !important;
+  stroke: rgba(239, 68, 68, 0.6) !important;
+}
+
+/* ── Popup ── */
+.gantt-container .popup-wrapper {
+  background: rgba(13, 37, 64, 0.97) !important;
+  border: 1px solid rgba(0, 212, 255, 0.2) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(24px) !important;
+}
+.gantt-container .popup-wrapper .title {
+  border-bottom: 2px solid #00d4ff !important;
+  color: #e2e8f0 !important;
+  font-weight: 700 !important;
+}
+.gantt-container .popup-wrapper .subtitle {
+  color: #94a3b8 !important;
+}
+.gantt-container .popup-wrapper .pointer {
+  border-top-color: rgba(13, 37, 64, 0.97) !important;
+}

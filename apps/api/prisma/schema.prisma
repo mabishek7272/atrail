@@ -470,6 +470,7 @@ model Task {
   assignedToId String
   assignedById String
 
+  startAt        DateTime?
   dueAt          DateTime?
   estimatedHours Float?
 
@@ -490,10 +491,28 @@ model Task {
   subTasks      SubTask[]
   comments      TaskComment[]
 
+  // Gantt dependencies: rows where this task is the dependent (taskId = this.id)
+  dependsOn TaskDependency[] @relation("DependentTask")
+  // Gantt dependencies: rows where this task is the prerequisite (dependsOnTaskId = this.id)
+  blocks    TaskDependency[] @relation("PrerequisiteTask")
+
   @@index([projectId, status])
   @@index([assignedToId, status])
   @@index([assignedById])
   @@index([splitFromId])
+}
+
+model TaskDependency {
+  id              String   @id @default(cuid())
+  taskId          String
+  dependsOnTaskId String
+  createdAt       DateTime @default(now())
+
+  task      Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("PrerequisiteTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
 }
 
 model TaskSubmission {
