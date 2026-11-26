@@ -1,7 +1,14 @@
 import { Router } from "express";
 import { renewalController } from "./controller.js";
 import { requireAuth } from "../../middlewares/auth.js";
-import { requireRoles, RenewalOSRole, validateOrgContext } from "../../middlewares/rbac.js";
+import { requireRoles, validateOrgContext } from "../../middlewares/rbac.js";
+
+// NOTE: these routes used to gate on the legacy RenewalOSRole enum
+// ("ORG_ADMIN", "ACCOUNT_MANAGER", etc.), whose string values are not keys
+// in rbac.ts's ROLE_WEIGHTS map. requireRoles() resolves an unknown role to
+// a fallback weight of 999 — higher than even GOD (200) — so every route
+// below was silently unreachable by any real user. Replaced with the real
+// Role enum values that match the original intent (see comments per route).
 
 const router = Router();
 
@@ -13,9 +20,11 @@ router.use(validateOrgContext());
 // CRUD Endpoints
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Anyone with edit_all_renewals or manage_own_customers can create
+// Anyone with edit_all_renewals or manage_own_customers can create.
+// Per rbac.ts's getPermissionsForRole(), both permissions are already
+// granted starting at USER weight — INTERN is the only role excluded.
 router.post("/",
-  requireRoles(RenewalOSRole.ORG_ADMIN, RenewalOSRole.ACCOUNT_MANAGER, RenewalOSRole.SALES_MANAGER),
+  requireRoles("USER"),
   (req, res) => renewalController.createRenewal(req, res)
 );
 
@@ -26,12 +35,16 @@ router.get("/queue", (req, res) => renewalController.getActionQueue(req, res));
 router.get("/:id", (req, res) => renewalController.getRenewal(req, res));
 
 router.put("/:id",
-  requireRoles(RenewalOSRole.ORG_ADMIN, RenewalOSRole.ACCOUNT_MANAGER, RenewalOSRole.SALES_MANAGER),
+  requireRoles("USER"),
   (req, res) => renewalController.updateRenewal(req, res)
 );
 
+// Deleting a renewal record is an org-owner/admin-level action — no lower
+// tier in rbac.ts's ROLE_WEIGHTS maps to the old ORG_OWNER/ORG_ADMIN split,
+// so this uses ADMIN as the floor (matches "Admin+ only" in RBAC_Matrix.csv
+// for destructive renewal actions).
 router.delete("/:id",
-  requireRoles(RenewalOSRole.ORG_ADMIN, RenewalOSRole.ORG_OWNER),
+  requireRoles("ADMIN"),
   (req, res) => renewalController.deleteRenewal(req, res)
 );
 

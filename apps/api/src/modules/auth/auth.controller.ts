@@ -117,13 +117,17 @@ export const authController = {
       const token = req.cookies?.refreshToken;
       if (!token) throw new ApiError(401, "Missing refresh token");
 
-      // Accept an optional orgId to preserve org-switch context across reloads
+      // Accept an optional orgId/scope to preserve org-switch / Overall
+      // context across reloads (see auth.service.ts refresh() for why scope
+      // must be explicitly re-validated and re-signed on every refresh).
       const desiredOrgId: string | undefined = req.body?.orgId;
+      const desiredScope: "SINGLE_ORG" | "ALL_ORGS" | "RESELLER_ORGS" | undefined = req.body?.scope;
 
       const { accessToken, refreshToken, user } = await authService.refresh(token, {
         ip: req.ip,
         userAgent: req.headers["user-agent"],
         desiredOrgId,
+        desiredScope,
       });
 
       res.cookie("refreshToken", refreshToken, refreshCookieOptions());
@@ -194,6 +198,9 @@ export const authController = {
           organizationId: activeOrgId,
           organization: activeOrg || { id: activeOrgId, name: "Organization" },
           twoFactorEnabled: totpSecret?.verified === true,
+          // Reported from the JWT so a page refresh mid-"Overall"/reseller-wide
+          // session shows the correct state instead of silently defaulting.
+          scope: user.scope ?? "SINGLE_ORG",
         },
       });
     } catch (e) {
@@ -455,24 +462,36 @@ export const authController = {
       });
       if (!user) throw new ApiError(404, "User not found");
 
+      // Fetch the target org first — needed for the reseller-scope check below.
+      const targetOrg = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { id: true, name: true, resellerId: true },
+      });
+      if (!targetOrg) throw new ApiError(404, "Organization not found");
+
       const isDeveloperOrGod = user.role === "GOD" || user.role === "DEVELOPER";
-      const hasAccess = isDeveloperOrGod || user.organizationId === orgId || user.accessibleOrgs.some(ao => ao.organizationId === orgId);
+      const isOwnReseller =
+        user.role === "RESELLER_SUPER_ADMIN" &&
+        !!user.resellerId &&
+        targetOrg.resellerId === user.resellerId;
+      const hasAccess =
+        isDeveloperOrGod ||
+        isOwnReseller ||
+        user.organizationId === orgId ||
+        user.accessibleOrgs.some(ao => ao.organizationId === orgId);
 
       if (!hasAccess) {
         throw new ApiError(403, "You do not have access to this organization");
       }
 
-      // Fetch the target org name (GOD may not have it in accessibleOrgs)
-      const targetOrg = await prisma.organization.findUnique({
-        where: { id: orgId },
-        select: { id: true, name: true },
-      });
-      if (!targetOrg) throw new ApiError(404, "Organization not found");
-
+      // Switching to a specific org always narrows scope back to SINGLE_ORG,
+      // even if the caller was previously in Overall/reseller-wide mode —
+      // picking one org is an explicit request to stop seeing everything.
       const accessToken = signAccessToken({
         sub: user.id,
         orgId: orgId,
         role: user.role,
+        scope: "SINGLE_ORG",
       });
 
       res.cookie("accessToken", accessToken, accessCookieOptions());
@@ -487,7 +506,68 @@ export const authController = {
           organizationId: orgId,
           organization: targetOrg,
           accessibleOrgs: user.accessibleOrgs,
+          scope: "SINGLE_ORG",
         }
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+
+  /** ----------------------------------------------------------------
+   *  setScope — opt-in broadening of session scope beyond a single org.
+   *  GOD/DEVELOPER -> ALL_ORGS ("Overall"); RESELLER_SUPER_ADMIN ->
+   *  RESELLER_ORGS (all client orgs under their reseller). Passing
+   *  SINGLE_ORG narrows back to the user's current orgId, same as
+   *  switchOrg but without picking a different org.
+   * ---------------------------------------------------------------- */
+  async setScope(req: Request, res: Response, next: NextFunction) {
+    try {
+      const u = (req as any).user;
+      const { scope } = req.body as { scope?: "SINGLE_ORG" | "ALL_ORGS" | "RESELLER_ORGS" };
+      if (!scope || !["SINGLE_ORG", "ALL_ORGS", "RESELLER_ORGS"].includes(scope)) {
+        throw new ApiError(400, "scope must be one of SINGLE_ORG, ALL_ORGS, RESELLER_ORGS");
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: u.id },
+        select: { id: true, fullName: true, email: true, role: true, organizationId: true, resellerId: true },
+      });
+      if (!user) throw new ApiError(404, "User not found");
+
+      if (scope === "ALL_ORGS" && user.role !== "GOD" && user.role !== "DEVELOPER") {
+        throw new ApiError(403, "Overall mode requires GOD or DEVELOPER role");
+      }
+      if (scope === "RESELLER_ORGS" && (user.role !== "RESELLER_SUPER_ADMIN" || !user.resellerId)) {
+        throw new ApiError(403, "Reseller-wide mode requires RESELLER_SUPER_ADMIN role with a linked reseller");
+      }
+
+      const organization = await prisma.organization.findUnique({
+        where: { id: user.organizationId },
+        select: { id: true, name: true },
+      });
+
+      const accessToken = signAccessToken({
+        sub: user.id,
+        orgId: user.organizationId, // unchanged — see jwt.ts on why this stays concrete
+        role: user.role,
+        scope,
+        resellerId: scope === "RESELLER_ORGS" ? user.resellerId : null,
+      });
+
+      res.cookie("accessToken", accessToken, accessCookieOptions());
+      res.json({
+        ok: true,
+        accessToken,
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role,
+          organizationId: user.organizationId,
+          organization: organization || { id: user.organizationId, name: "Organization" },
+          scope,
+        },
       });
     } catch (e) {
       next(e);

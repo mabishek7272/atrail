@@ -275,6 +275,13 @@ model User {
   organizationId String
   role           Role
 
+  // Set for RESELLER_SUPER_ADMIN: which Reseller they own/belong to.
+  // Lets requireAuth set the RLS current_reseller_id() session var without
+  // a lookup per request, and lets a reseller admin's default token scope
+  // (RESELLER_ORGS) cover every client org under this reseller — see
+  // middlewares/auth.ts requireAuth and the tenant_isolation RLS policies.
+  resellerId String?
+
   fullName     String
   email        String        @unique
   passwordHash String

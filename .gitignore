@@ -3,6 +3,9 @@ node_modules/
 apps/**/node_modules/
 packages/**/node_modules/
 
+# Dev environment secrets (generated per-machine, never commit)
+.dev-secrets.generated
+
 # Build outputs
 .dist/
 dist/

@@ -350,7 +350,7 @@ export const authService = {
     };
   },
 
-  async refresh(refreshToken: string, meta?: { userAgent?: string; ip?: string; desiredOrgId?: string }) {
+  async refresh(refreshToken: string, meta?: { userAgent?: string; ip?: string; desiredOrgId?: string; desiredScope?: "SINGLE_ORG" | "ALL_ORGS" | "RESELLER_ORGS" }) {
     const payload = verifyRefreshToken(refreshToken);
 
     const session = await prisma.authSession.findUnique({
@@ -413,10 +413,26 @@ export const authService = {
       }
     }
 
+    // Re-validate and preserve scope (ALL_ORGS / RESELLER_ORGS) across a
+    // silent refresh — without this, a GOD user in "Overall" mode would
+    // silently drop back to SINGLE_ORG every 15 minutes when their access
+    // token expires, which is exactly the class of bug this scope model
+    // exists to prevent. orgId is untouched either way (see jwt.ts).
+    let activeScope: "SINGLE_ORG" | "ALL_ORGS" | "RESELLER_ORGS" = "SINGLE_ORG";
+    let activeResellerId: string | null = null;
+    if (meta?.desiredScope === "ALL_ORGS" && (session.user.role === "GOD" || session.user.role === "DEVELOPER")) {
+      activeScope = "ALL_ORGS";
+    } else if (meta?.desiredScope === "RESELLER_ORGS" && session.user.role === "RESELLER_SUPER_ADMIN" && session.user.resellerId) {
+      activeScope = "RESELLER_ORGS";
+      activeResellerId = session.user.resellerId;
+    }
+
     const newAccessToken = signAccessToken({
       sub: session.user.id,
       orgId: activeOrgId,
       role: session.user.role,
+      scope: activeScope,
+      resellerId: activeResellerId,
     });
 
     // Fetch the organization info for the active org
@@ -435,6 +451,7 @@ export const authService = {
         role: session.user.role,
         organizationId: activeOrgId,
         organization: organization || { id: activeOrgId, name: "Organization" },
+        scope: activeScope,
       },
     };
   },

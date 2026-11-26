@@ -48,3 +48,7 @@ authRouter.get("/sso/microsoft", authController.ssoMicrosoftStart);
 authRouter.get("/sso/microsoft/callback", authController.ssoMicrosoftCallback);
 authRouter.post("/sso/exchange-otp", authController.exchangeOtp);
 authRouter.post("/switch-org", requireAuth, authController.switchOrg);
+// Opt-in broadening of session scope — GOD/DEVELOPER "Overall" (all orgs) or
+// RESELLER_SUPER_ADMIN "reseller-wide" (all client orgs under their reseller).
+// Role eligibility is validated inside the controller per requested scope.
+authRouter.post("/scope", requireAuth, authController.setScope);

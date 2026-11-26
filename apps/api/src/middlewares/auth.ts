@@ -73,23 +73,51 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
       return next(new ApiError(403, "GOD role not authorised for this account"));
     }
 
+    // scope/resellerId are additive signals on top of orgId — see jwt.ts
+    // for why orgId itself always stays a concrete value. Re-validate scope
+    // against the LIVE role (not the token's) so a demoted GOD/DEVELOPER or
+    // RESELLER_SUPER_ADMIN can't keep an elevated scope for the life of an
+    // already-issued access token.
+    let scope: "SINGLE_ORG" | "ALL_ORGS" | "RESELLER_ORGS" = payload.scope ?? "SINGLE_ORG";
+    if (scope === "ALL_ORGS" && dbUser.role !== "GOD" && dbUser.role !== "DEVELOPER") {
+      scope = "SINGLE_ORG";
+    }
+    if (scope === "RESELLER_ORGS" && dbUser.role !== "RESELLER_SUPER_ADMIN") {
+      scope = "SINGLE_ORG";
+    }
+
     (req as any).user = {
       id:             payload.sub,
       orgId:          payload.orgId,
       organizationId: payload.orgId,
       role:           dbUser.role,   // always use live DB role, never trust token
+      scope,
+      resellerId:     scope === "RESELLER_ORGS" ? payload.resellerId : null,
     };
 
-    // Set PostgreSQL RLS context
-    if (payload.orgId) {
+    // Set PostgreSQL RLS context. orgId is always set (see jwt.ts) so
+    // non-RLS tables' app-level `where: { organizationId }` filters are
+    // completely unaffected by scope. scope only changes what's layered on
+    // top for the 11 RLS-covered tables (security_hardening migration):
+    //   ALL_ORGS      -> current_org_id cleared entirely (real bypass)
+    //   RESELLER_ORGS -> current_org_id stays set, PLUS current_reseller_id
+    //                    is set so the reseller-wide policy disjunct fires
+    //   SINGLE_ORG    -> current_org_id set, current_reseller_id cleared
+    if (scope === "ALL_ORGS") {
+      await prisma.$executeRawUnsafe(`SELECT set_config('app.current_org_id', '', FALSE)`);
+      await prisma.$executeRawUnsafe(`SELECT set_config('app.current_reseller_id', '', FALSE)`);
+    } else if (payload.orgId) {
+      await prisma.$executeRawUnsafe(`SELECT set_config('app.current_org_id', $1, FALSE)`, payload.orgId);
       await prisma.$executeRawUnsafe(
-        `SELECT set_config('app.current_org_id', $1, FALSE)`,
-        payload.orgId
+        `SELECT set_config('app.current_reseller_id', $1, FALSE)`,
+        scope === "RESELLER_ORGS" && payload.resellerId ? payload.resellerId : ""
       );
     } else {
-      await prisma.$executeRawUnsafe(
-        `SELECT set_config('app.current_org_id', '', FALSE)`
-      );
+      // No orgId and not an explicit ALL_ORGS scope — this should not
+      // happen with any code path that mints tokens today (orgId is always
+      // set), so fail closed rather than silently falling through to an
+      // RLS bypass the way the old code did.
+      return next(new ApiError(401, "Token missing organization context"));
     }
 
     next();
@@ -99,44 +127,18 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
 };
 
 /** ----------------------------------------------------------------
- *  requireRole — RBAC guard with tenant validation
+ *  requireRole — re-exported from rbac.ts (single source of truth)
+ * ----------------------------------------------------------------
+ *  Previously this file defined its OWN requireRole with its own weight
+ *  table (ROLE_HIERARCHY: GOD 100/DEVELOPER 90/.../INTERN 30) that did an
+ *  exact-role match for anyone below DEVELOPER, while rbac.ts separately
+ *  defined a real weight-based requireRole (GOD 200/DEVELOPER 190/.../
+ *  INTERN 30) used only by the renewals module. Having two differently-
+ *  scaled, differently-behaving implementations of the same exported name
+ *  was a real bug source (routes had to manually enumerate every allowed
+ *  role instead of relying on hierarchy). rbac.ts's version is now the
+ *  only implementation; this re-export keeps every existing
+ *  `import { requireAuth, requireRole } from ".../middlewares/auth.js"`
+ *  call site working with zero changes.
  * ---------------------------------------------------------------- */
-// GOD can do anything, DEVELOPER can do anything except GOD-only routes
-const ROLE_HIERARCHY: Record<string, number> = {
-  GOD:                  100,
-  DEVELOPER:            90,
-  RESELLER_SUPER_ADMIN: 80,
-  ADMIN:                70,
-  ELITE:                60,
-  USER:                 40,
-  INTERN:               30,
-};
-
-export const requireRole =
-  (...roles: string[]): RequestHandler =>
-  (req, _res, next) => {
-    const user = (req as any).user;
-    if (!user) return next(new ApiError(401, "Unauthorized"));
-
-    const userLevel = ROLE_HIERARCHY[user.role] ?? 0;
-
-    // GOD/DEVELOPER bypass all org-level role checks
-    if (userLevel >= ROLE_HIERARCHY.DEVELOPER) return next();
-
-    if (!roles.includes(user.role)) return next(new ApiError(403, "Forbidden"));
-
-    // If the route has an :orgId param, verify it matches the user's org
-    const paramOrgId = (req.params as any).orgId;
-    if (paramOrgId && paramOrgId !== user.orgId) {
-      return next(new ApiError(403, "Organization mismatch"));
-    }
-    next();
-  };
-
-export const requireGodOrDeveloper: RequestHandler = (req, _res, next) => {
-  const user = (req as any).user;
-  if (!user) return next(new ApiError(401, "Unauthorized"));
-  const level = ROLE_HIERARCHY[user.role] ?? 0;
-  if (level < ROLE_HIERARCHY.DEVELOPER) return next(new ApiError(403, "Forbidden: requires DEVELOPER or GOD role"));
-  next();
-};
+export { requireRole, requireGod, requireResellerOrAbove } from "./rbac.js";
