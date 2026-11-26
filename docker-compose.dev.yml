@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: atrail_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: atrail_dev
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: atrail_dev
+    ports:
+      - "127.0.0.1:5437:5432"
+    volumes:
+      - atrail_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atrail_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: atrail_redis_dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - atrail_dev_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  atrail_dev_pgdata:
+  atrail_dev_redisdata:
